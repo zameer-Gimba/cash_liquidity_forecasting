@@ -18,7 +18,7 @@ The expected raw transaction dataset spans approximately December 2021 through 2
 - `Credit`
 - `Balance`
 
-The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Cash_Demand_Next_Day`, defined as the next day's withdrawal demand.
+The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Withdrawal_Tomorrow`, defined as the next day's withdrawal demand.
 
 ## Repository Structure
 
