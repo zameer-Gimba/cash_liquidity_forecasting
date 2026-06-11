@@ -124,6 +124,9 @@ The default `requirements.txt` intentionally excludes TensorFlow and other heavy
 pip install -r requirements-ml.txt
 ```
 
+streamlit run streamlit_app/app.py
+```
+
 Pages:
 
 - Dashboard: current date, predicted tomorrow demand, recommended reserve, risk level, model used, confidence score.
