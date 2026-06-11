@@ -6,6 +6,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from statsmodels.tsa.seasonal import seasonal_decompose
+
 from src.utils.config import FIGURES_DIR, TARGET_COLUMN
 
 sns.set_theme(style="whitegrid")
@@ -67,4 +69,8 @@ def generate_eda_figures(df: pd.DataFrame, output_dir: Path = FIGURES_DIR) -> li
             fig = decomposition.plot()
             fig.set_size_inches(12, 8)
             paths.append(_save(fig, "seasonal_decomposition.png", output_dir))
+        decomposition = seasonal_decompose(data.set_index("TransactionDate")[TARGET_COLUMN].asfreq("D").interpolate(), model="additive", period=7)
+        fig = decomposition.plot()
+        fig.set_size_inches(12, 8)
+        paths.append(_save(fig, "seasonal_decomposition.png", output_dir))
     return paths
