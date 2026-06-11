@@ -118,6 +118,15 @@ Pages:
 - Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
 - Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
 
+
+## Publishing to GitHub
+
+All source files should be committed before publishing. See `docs/GITHUB_REPOSITORY_UPLOAD.md` for step-by-step GitHub upload instructions, or run:
+
+```bash
+scripts/publish_to_github.sh https://github.com/<owner>/<repository>.git main
+```
+
 ## Deployment
 
 ### Streamlit Community Cloud
