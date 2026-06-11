@@ -74,6 +74,12 @@ Implemented features include:
 ## Training
 
 ```bash
+# For app/test dependencies:
+pip install -r requirements.txt
+
+# For optional advanced ML libraries (XGBoost, LightGBM, TensorFlow, statsmodels):
+pip install -r requirements-ml.txt
+
 python -m src.preprocessing.pipeline data/raw_transactions.csv --output-path data/feature_engineered_dataset/features.csv
 python -m src.models.train_random_forest data/feature_engineered_dataset/features.csv
 python -m src.models.train_xgboost data/feature_engineered_dataset/features.csv
@@ -108,6 +114,16 @@ The default safety buffer is 15% and can be configured in `src/utils/config.py` 
 Run locally:
 
 ```bash
+pip install -r requirements.txt
+streamlit run streamlit_app/app.py
+```
+
+The default `requirements.txt` intentionally excludes TensorFlow and other heavyweight optional training libraries so Streamlit Community Cloud can deploy successfully on newer Python runtimes. Use `requirements-ml.txt` only for local/full training environments.
+
+```bash
+pip install -r requirements-ml.txt
+```
+
 streamlit run streamlit_app/app.py
 ```
 

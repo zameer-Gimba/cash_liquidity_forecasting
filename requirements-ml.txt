@@ -1,0 +1,8 @@
+# Optional training dependencies for advanced model experiments.
+# Streamlit Community Cloud installs requirements.txt for the app; keep heavyweight
+# and Python-ABI-sensitive libraries here so app deployment remains reliable.
+-r requirements.txt
+statsmodels>=0.14
+xgboost>=2.0
+lightgbm>=4.0
+tensorflow>=2.15; python_version < "3.13" and platform_machine != "aarch64"
