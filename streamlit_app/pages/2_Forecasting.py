@@ -20,6 +20,10 @@ import importlib
 import src.utils.config as config_module
 import src.models.common as common_module
 import src.models.evaluate_models as evaluate_module
+import joblib
+import numpy as np
+import math
+from pathlib import Path as _Path
 
 st.title("Forecasting")
 future_date = st.date_input("Select future date", value=date.today() + timedelta(days=1), min_value=date.today())
@@ -61,6 +65,78 @@ with cols[0]:
                         st.success("Updated model comparison table")
                     except Exception:
                         st.info("Could not update model comparison table automatically.")
+                    # attempt quick prediction to update dashboard
+                    try:
+                        df = load_feature_data(str(data_path))
+                        def try_quick_predict(model_name: str, df: pd.DataFrame) -> float | None:
+                            artifact_map = {
+                                "Random Forest": "random_forest.joblib",
+                                "XGBoost": "xgboost.joblib",
+                                "LightGBM": "lightgbm.joblib",
+                                "LSTM": "lstm_fallback_mlp.joblib",
+                                "ARIMA": "arima.joblib",
+                                "SARIMA": "sarima.joblib",
+                            }
+                            model_file = artifact_map.get(model_name)
+                            if model_file is None:
+                                return None
+                            model_path = _Path(MODEL_DIR) / model_file
+                            if not model_path.exists():
+                                # special case: keras lstm model
+                                if model_name == "LSTM" and (_Path(MODEL_DIR) / "lstm.keras").exists():
+                                    model_path = _Path(MODEL_DIR) / "lstm.keras"
+                                else:
+                                    return None
+                            # try joblib load first
+                            try:
+                                artifact = joblib.load(model_path)
+                            except Exception:
+                                artifact = None
+                            # sklearn-like predictor
+                            if artifact is not None and hasattr(artifact, "predict"):
+                                try:
+                                    features = common_module.feature_columns(df)
+                                    preds = artifact.predict(df[features])
+                                    return float(preds[-1])
+                                except Exception:
+                                    return None
+                            # dict fallback (arima/sarima)
+                            if isinstance(artifact, dict):
+                                if artifact.get("strategy") == "last_observation":
+                                    return float(artifact.get("value"))
+                                if artifact.get("strategy") == "weekly_seasonal_naive":
+                                    pattern = artifact.get("pattern", [])
+                                    if pattern:
+                                        return float(pattern[-1])
+                            # keras LSTM model handling
+                            if model_name == "LSTM":
+                                scaler_file = _Path(MODEL_DIR) / "lstm_scaler.joblib"
+                                keras_file = _Path(MODEL_DIR) / "lstm.keras"
+                                if scaler_file.exists() and keras_file.exists():
+                                    try:
+                                        scaler_art = joblib.load(scaler_file)
+                                        from tensorflow import keras
+
+                                        keras_model = keras.models.load_model(str(keras_file))
+                                        features = scaler_art["features"]
+                                        scaler = scaler_art["scaler"]
+                                        X = df[features].fillna(0.0).values
+                                        Xs = scaler.transform(X)
+                                        x_input = Xs[-1].reshape(1, 1, Xs.shape[1])
+                                        pred = keras_model.predict(x_input, verbose=0).ravel()[-1]
+                                        return float(pred)
+                                    except Exception:
+                                        return None
+                            return None
+
+                        pred_value = try_quick_predict(selected_model, df)
+                        if pred_value is not None and not (math.isnan(pred_value)):
+                            st.session_state["predicted_tomorrow_demand"] = float(pred_value)
+                            st.session_state["model_used"] = f"{selected_model}"
+                            st.session_state["confidence_score"] = "N/A"
+                            st.success("Dashboard updated with quick prediction from trained model.")
+                    except Exception:
+                        pass
                 except KeyError as e:
                     st.error("Training failed: required target column not found in dataset.")
                     st.error(str(e))
