@@ -60,6 +60,15 @@ def generate_eda_figures(df: pd.DataFrame, output_dir: Path = FIGURES_DIR) -> li
     ax.set_title("Rolling Average Plots")
     paths.append(_save(fig, "rolling_averages.png", output_dir))
     if len(data) >= 14:
+        try:
+            from statsmodels.tsa.seasonal import seasonal_decompose
+        except ImportError:
+            seasonal_decompose = None
+        if seasonal_decompose is not None:
+            decomposition = seasonal_decompose(data.set_index("TransactionDate")[TARGET_COLUMN].asfreq("D").interpolate(), model="additive", period=7)
+            fig = decomposition.plot()
+            fig.set_size_inches(12, 8)
+            paths.append(_save(fig, "seasonal_decomposition.png", output_dir))
         decomposition = seasonal_decompose(data.set_index("TransactionDate")[TARGET_COLUMN].asfreq("D").interpolate(), model="additive", period=7)
         fig = decomposition.plot()
         fig.set_size_inches(12, 8)

@@ -41,6 +41,7 @@ After pushing, verify that the repository contains these top-level project asset
 
 - `README.md`
 - `requirements.txt`
+- `requirements-ml.txt`
 - `Dockerfile`
 - `Procfile`
 - `runtime.txt`
