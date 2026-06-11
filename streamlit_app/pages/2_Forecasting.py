@@ -14,12 +14,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.models.predict import recommended_cash_reserve
 from src.utils.config import SAFETY_BUFFER
 from src.models.predict import LiquidityPredictor
-import src.models.train_random_forest as train_rf_module
 from src.models.common import load_feature_data
 from src.utils.config import MODEL_DIR
 import importlib
 import src.utils.config as config_module
 import src.models.common as common_module
+import src.models.evaluate_models as evaluate_module
 
 st.title("Forecasting")
 future_date = st.date_input("Select future date", value=date.today() + timedelta(days=1), min_value=date.today())
@@ -28,27 +28,42 @@ buffer = st.slider("Safety buffer", min_value=0.0, max_value=0.5, value=SAFETY_B
 
 # Training controls
 st.markdown("### Train and Use Saved Model")
+model_options = {
+    "Random Forest": "src.models.train_random_forest",
+    "XGBoost": "src.models.train_xgboost",
+    "LightGBM": "src.models.train_lightgbm",
+    "LSTM": "src.models.train_lstm",
+    "ARIMA": "src.models.train_arima",
+    "SARIMA": "src.models.train_sarima",
+}
+selected_model = st.selectbox("Model to train", list(model_options.keys()), index=0)
 cols = st.columns([1, 1, 1, 1])
 with cols[0]:
-    if st.button("Train Random Forest (tuned)"):
-        with st.spinner("Training Random Forest (this may take a while)..."):
+    if st.button("Train Selected Model"):
+        with st.spinner("Training selected model (this may take a while)..."):
             data_path = Path("data/feature_engineered_dataset/feature_engineered_dataset.csv")
             if not data_path.exists():
                 st.error(f"Feature dataset not found: {data_path}")
             else:
                 try:
-                    # reload config, common, and training modules to pick up on-disk changes without a server restart
+                    # reload modules
                     importlib.reload(config_module)
                     importlib.reload(common_module)
-                    importlib.reload(train_rf_module)
-                    metrics = train_rf_module.main(str(data_path), n_iter=10)
+                    train_module = importlib.import_module(model_options[selected_model])
+                    importlib.reload(train_module)
+                    metrics = train_module.main(str(data_path))
                     st.success("Training complete")
                     st.json(metrics)
                     st.write(f"Saved model artifacts to {MODEL_DIR}")
+                    # update model comparison table
+                    try:
+                        evaluate_module.save_comparison_tables()
+                        st.success("Updated model comparison table")
+                    except Exception:
+                        st.info("Could not update model comparison table automatically.")
                 except KeyError as e:
                     st.error("Training failed: required target column not found in dataset.")
                     st.error(str(e))
-                    # concise diagnostics without printing full dataset
                     try:
                         df = load_feature_data(str(data_path))
                         expected = config_module.TARGET_COLUMN
@@ -63,20 +78,33 @@ with cols[0]:
                     st.exception(e)
 with cols[1]:
     if st.button("Run Saved Model Predictions"):
-        model_path = MODEL_DIR / "random_forest.joblib"
+        artifact_map = {
+            "Random Forest": "random_forest.joblib",
+            "XGBoost": "xgboost.joblib",
+            "LightGBM": "lightgbm.joblib",
+            "LSTM": "lstm_fallback_mlp.joblib",
+            "ARIMA": "arima.joblib",
+            "SARIMA": "sarima.joblib",
+        }
+        model_file = artifact_map.get(selected_model, "random_forest.joblib")
+        model_path = MODEL_DIR / model_file
         if not model_path.exists():
             st.error("Saved model not found. Train a model first.")
         else:
-            df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
-            predictor = LiquidityPredictor(model_path)
-            preds = predictor.predict(df, history=df)
-            # show the most recent prediction and set session state for dashboard
-            last_pred = preds.sort_values("TransactionDate").iloc[-1]
-            st.session_state["predicted_tomorrow_demand"] = float(last_pred["Predicted_Withdrawal_Demand"])
-            st.session_state["model_used"] = model_path.name
-            st.session_state["confidence_score"] = "N/A"
-            st.success("Predictions generated and dashboard updated.")
-            st.dataframe(preds.tail(50), use_container_width=True)
+            try:
+                df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+                # attempt to use LiquidityPredictor; some model artifacts may not be compatible
+                predictor = LiquidityPredictor(model_path)
+                preds = predictor.predict(df, history=df)
+                last_pred = preds.sort_values("TransactionDate").iloc[-1]
+                st.session_state["predicted_tomorrow_demand"] = float(last_pred["Predicted_Withdrawal_Demand"])
+                st.session_state["model_used"] = model_path.name
+                st.session_state["confidence_score"] = "N/A"
+                st.success("Predictions generated and dashboard updated.")
+                st.dataframe(preds.tail(50), use_container_width=True)
+            except Exception as e:
+                st.error("Saved model loaded but is incompatible with quick prediction UI.")
+                st.exception(e)
 with cols[2]:
     if st.button("Clear Saved Models"):
         for p in MODEL_DIR.glob("*.joblib"):
