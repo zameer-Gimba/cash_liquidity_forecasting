@@ -19,8 +19,8 @@ st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", la
 st.title("Predictive Liquidity Model for Agent Banking in Nigeria")
 st.caption("Decision support for POS cash reserve planning")
 
-predicted = st.session_state.get("predicted_tomorrow_demand", 0.0)
-model_used = st.session_state.get("model_used", "Best saved model")
+predicted = st.session_state.get("model_prediction", st.session_state.get("predicted_tomorrow_demand", 0.0))
+model_used = st.session_state.get("model_used", st.session_state.get("selected_model", "Best saved model"))
 reserve = recommended_cash_reserve(float(predicted), SAFETY_BUFFER)
 risk = "High" if predicted > 0 and reserve > predicted * 1.1 else "Low"
 
