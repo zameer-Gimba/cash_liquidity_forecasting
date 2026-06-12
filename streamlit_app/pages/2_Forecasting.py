@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 import sys
 
+import pandas as pd
 import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -26,9 +27,32 @@ import math
 from pathlib import Path as _Path
 
 st.title("Forecasting")
-future_date = st.date_input("Select future date", value=date.today() + timedelta(days=1), min_value=date.today())
-predicted = st.number_input("Predicted withdrawal demand (₦)", min_value=0.0, value=float(st.session_state.get("predicted_tomorrow_demand", 0.0)), step=1000.0)
-buffer = st.slider("Safety buffer", min_value=0.0, max_value=0.5, value=SAFETY_BUFFER, step=0.01)
+
+if "future_date" not in st.session_state:
+    st.session_state["future_date"] = date.today() + timedelta(days=1)
+if "predicted_tomorrow_demand" not in st.session_state:
+    st.session_state["predicted_tomorrow_demand"] = 0.0
+if "model_prediction" not in st.session_state:
+    st.session_state["model_prediction"] = st.session_state["predicted_tomorrow_demand"]
+if "buffer" not in st.session_state:
+    st.session_state["buffer"] = SAFETY_BUFFER
+if "selected_model" not in st.session_state:
+    st.session_state["selected_model"] = "Random Forest"
+if "confidence_score" not in st.session_state:
+    st.session_state["confidence_score"] = "N/A"
+
+future_date = st.date_input(
+    "Select future date",
+    value=st.session_state["future_date"],
+    min_value=date.today(),
+)
+buffer = st.slider(
+    "Safety buffer",
+    min_value=0.0,
+    max_value=0.5,
+    value=st.session_state["buffer"],
+    step=0.01,
+)
 
 # Training controls
 st.markdown("### Train and Use Saved Model")
@@ -40,7 +64,12 @@ model_options = {
     "ARIMA": "src.models.train_arima",
     "SARIMA": "src.models.train_sarima",
 }
-selected_model = st.selectbox("Model to train", list(model_options.keys()), index=0)
+selected_model = st.selectbox(
+    "Model to train",
+    list(model_options.keys()),
+    index=list(model_options.keys()).index(st.session_state["selected_model"]),
+)
+st.session_state["selected_model"] = selected_model
 cols = st.columns([1, 1, 1, 1])
 with cols[0]:
     if st.button("Train Selected Model"):
@@ -81,56 +110,21 @@ with cols[0]:
                             if model_file is None:
                                 return None
                             model_path = _Path(MODEL_DIR) / model_file
+                            if not model_path.exists() and model_name == "LSTM" and (_Path(MODEL_DIR) / "lstm.keras").exists():
+                                model_path = _Path(MODEL_DIR) / "lstm.keras"
                             if not model_path.exists():
-                                # special case: keras lstm model
-                                if model_name == "LSTM" and (_Path(MODEL_DIR) / "lstm.keras").exists():
-                                    model_path = _Path(MODEL_DIR) / "lstm.keras"
-                                else:
-                                    return None
-                            # try joblib load first
+                                return None
                             try:
-                                artifact = joblib.load(model_path)
+                                predictor = LiquidityPredictor(model_path)
+                                preds = predictor.predict(df, history=df)
+                                last_pred = preds.sort_values("TransactionDate").iloc[-1]
+                                return float(last_pred["Predicted_Withdrawal_Demand"])
                             except Exception:
-                                artifact = None
-                            # sklearn-like predictor
-                            if artifact is not None and hasattr(artifact, "predict"):
-                                try:
-                                    features = common_module.feature_columns(df)
-                                    preds = artifact.predict(df[features])
-                                    return float(preds[-1])
-                                except Exception:
-                                    return None
-                            # dict fallback (arima/sarima)
-                            if isinstance(artifact, dict):
-                                if artifact.get("strategy") == "last_observation":
-                                    return float(artifact.get("value"))
-                                if artifact.get("strategy") == "weekly_seasonal_naive":
-                                    pattern = artifact.get("pattern", [])
-                                    if pattern:
-                                        return float(pattern[-1])
-                            # keras LSTM model handling
-                            if model_name == "LSTM":
-                                scaler_file = _Path(MODEL_DIR) / "lstm_scaler.joblib"
-                                keras_file = _Path(MODEL_DIR) / "lstm.keras"
-                                if scaler_file.exists() and keras_file.exists():
-                                    try:
-                                        scaler_art = joblib.load(scaler_file)
-                                        from tensorflow import keras
-
-                                        keras_model = keras.models.load_model(str(keras_file))
-                                        features = scaler_art["features"]
-                                        scaler = scaler_art["scaler"]
-                                        X = df[features].fillna(0.0).values
-                                        Xs = scaler.transform(X)
-                                        x_input = Xs[-1].reshape(1, 1, Xs.shape[1])
-                                        pred = keras_model.predict(x_input, verbose=0).ravel()[-1]
-                                        return float(pred)
-                                    except Exception:
-                                        return None
-                            return None
+                                return None
 
                         pred_value = try_quick_predict(selected_model, df)
                         if pred_value is not None and not (math.isnan(pred_value)):
+                            st.session_state["model_prediction"] = float(pred_value)
                             st.session_state["predicted_tomorrow_demand"] = float(pred_value)
                             st.session_state["model_used"] = f"{selected_model}"
                             st.session_state["confidence_score"] = "N/A"
@@ -164,22 +158,25 @@ with cols[1]:
         }
         model_file = artifact_map.get(selected_model, "random_forest.joblib")
         model_path = MODEL_DIR / model_file
+        if selected_model == "LSTM" and not model_path.exists() and (MODEL_DIR / "lstm.keras").exists():
+            model_path = MODEL_DIR / "lstm.keras"
         if not model_path.exists():
             st.error("Saved model not found. Train a model first.")
         else:
             try:
                 df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
-                # attempt to use LiquidityPredictor; some model artifacts may not be compatible
                 predictor = LiquidityPredictor(model_path)
                 preds = predictor.predict(df, history=df)
                 last_pred = preds.sort_values("TransactionDate").iloc[-1]
-                st.session_state["predicted_tomorrow_demand"] = float(last_pred["Predicted_Withdrawal_Demand"])
-                st.session_state["model_used"] = model_path.name
+                prediction_value = float(last_pred["Predicted_Withdrawal_Demand"])
+                st.session_state["model_prediction"] = prediction_value
+                st.session_state["predicted_tomorrow_demand"] = prediction_value
+                st.session_state["model_used"] = selected_model
                 st.session_state["confidence_score"] = "N/A"
                 st.success("Predictions generated and dashboard updated.")
                 st.dataframe(preds.tail(50), use_container_width=True)
             except Exception as e:
-                st.error("Saved model loaded but is incompatible with quick prediction UI.")
+                st.error("Unable to generate predictions from the selected saved model.")
                 st.exception(e)
 with cols[2]:
     if st.button("Clear Saved Models"):
@@ -191,8 +188,41 @@ with cols[2]:
         st.warning("Deleted saved models from MODEL_DIR")
 
 if st.button("Generate prediction"):
-    reserve = recommended_cash_reserve(predicted, buffer)
-    st.metric("Forecast date", future_date.isoformat())
-    st.metric("Predicted Withdrawal Demand", f"₦{predicted:,.0f}")
-    st.metric("Safety Buffer", f"{buffer:.0%}")
-    st.metric("Recommended Cash Reserve", f"₦{reserve:,.0f}")
+    artifact_map = {
+        "Random Forest": "random_forest.joblib",
+        "XGBoost": "xgboost.joblib",
+        "LightGBM": "lightgbm.joblib",
+        "LSTM": "lstm_fallback_mlp.joblib",
+        "ARIMA": "arima.joblib",
+        "SARIMA": "sarima.joblib",
+    }
+    model_file = artifact_map.get(selected_model)
+    model_path = MODEL_DIR / model_file if model_file else None
+    if selected_model == "LSTM":
+        fallback_path = MODEL_DIR / "lstm.keras"
+        if (model_path is None or not model_path.exists()) and fallback_path.exists():
+            model_path = fallback_path
+    if model_path is None or not model_path.exists():
+        st.error("Saved model not found. Train the selected model first.")
+    else:
+        try:
+            df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+            predictor = LiquidityPredictor(model_path)
+            preds = predictor.predict(df, history=df)
+            last_pred = preds.sort_values("TransactionDate").iloc[-1]
+            prediction_value = float(last_pred["Predicted_Withdrawal_Demand"])
+            st.session_state["model_prediction"] = prediction_value
+            st.session_state["predicted_tomorrow_demand"] = prediction_value
+            st.session_state["model_used"] = selected_model
+            st.session_state["confidence_score"] = "N/A"
+            st.session_state["future_date"] = future_date
+            st.session_state["buffer"] = buffer
+            reserve = recommended_cash_reserve(prediction_value, buffer)
+            st.metric("Forecast date", future_date.isoformat())
+            st.metric("Predicted Withdrawal Demand", f"₦{prediction_value:,.0f}")
+            st.metric("Safety Buffer", f"{buffer:.0%}")
+            st.metric("Recommended Cash Reserve", f"₦{reserve:,.0f}")
+            st.success("Generated prediction from the selected model and saved session state.")
+        except Exception as e:
+            st.error("Unable to generate prediction from the selected model.")
+            st.exception(e)
