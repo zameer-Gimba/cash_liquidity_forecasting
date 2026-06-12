@@ -14,7 +14,7 @@ RESULTS_DIR = REPORTS_DIR / "results"
 FIGURES_DIR = REPORTS_DIR / "figures"
 TABLES_DIR = REPORTS_DIR / "tables"
 RANDOM_STATE = 42
-TARGET_COLUMN = "Target_Cash_Demand_Next_Day"
+TARGET_COLUMN = "Target_Withdrawal_Tomorrow"
 DATE_COLUMN = "TransactionDate"
 SAFETY_BUFFER = 0.15
 

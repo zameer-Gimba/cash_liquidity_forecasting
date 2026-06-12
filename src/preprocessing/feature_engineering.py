@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TARGET_COLUMN = "Target_Cash_Demand_Next_Day"
+TARGET_COLUMN = "Target_Withdrawal_Tomorrow"
 
 
 def infer_transaction_type(narration: pd.Series) -> pd.Series:

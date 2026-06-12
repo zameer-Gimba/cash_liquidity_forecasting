@@ -6,4 +6,10 @@ matplotlib>=3.7
 seaborn>=0.12
 streamlit>=1.32
 openpyxl>=3.1
+statsmodels>=0.14
+streamlit>=1.32
+openpyxl>=3.1
+xgboost>=2.0
+lightgbm>=4.0
+tensorflow>=2.15; platform_machine != "aarch64"
 pytest>=7.4
