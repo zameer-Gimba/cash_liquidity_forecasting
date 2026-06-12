@@ -20,16 +20,19 @@ def main(data_path: str, lookback: int = 7, epochs: int = 20) -> dict[str, float
     """Train TensorFlow LSTM when available, otherwise an MLP fallback using MinMaxScaler."""
     df = load_feature_data(data_path)
     splits = chronological_split(df)
-    features = [column for column in feature_columns(df) if df[column].dtype != "object"]
+    features = feature_columns(df)
+    numeric_features = [column for column in features if df[column].dtype.kind in "biufc"]
+    if not numeric_features:
+        raise ValueError("No numeric features available for LSTM training. Ensure the feature dataset contains numeric columns.")
     scaler = MinMaxScaler()
-    train_validation = np.r_[splits.train[features].values, splits.validation[features].values]
+    train_validation = np.vstack([splits.train[numeric_features].values, splits.validation[numeric_features].values])
     scaler.fit(train_validation)
     x_train = scaler.transform(train_validation)
     y_train = np.r_[splits.train[TARGET_COLUMN].values, splits.validation[TARGET_COLUMN].values]
-    x_test = scaler.transform(splits.test[features].values)
+    x_test = scaler.transform(splits.test[numeric_features].values)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     if importlib.util.find_spec("tensorflow") is not None:
-        from tensorflow import keras
+        keras = importlib.import_module("tensorflow.keras")
 
         model = keras.Sequential([keras.layers.Input(shape=(1, x_train.shape[1])), keras.layers.LSTM(32), keras.layers.Dense(1)])
         model.compile(optimizer="adam", loss="mse")
@@ -41,7 +44,7 @@ def main(data_path: str, lookback: int = 7, epochs: int = 20) -> dict[str, float
         model.fit(x_train, y_train)
         predictions = model.predict(x_test)
         joblib.dump(model, MODEL_DIR / "lstm_fallback_mlp.joblib")
-    joblib.dump({"scaler": scaler, "features": features, "lookback": lookback}, MODEL_DIR / "lstm_scaler.joblib")
+    joblib.dump({"scaler": scaler, "features": numeric_features, "lookback": lookback}, MODEL_DIR / "lstm_scaler.joblib")
     metrics = regression_metrics(splits.test[TARGET_COLUMN], predictions)
     save_metrics(metrics, Path("reports/results/lstm_metrics.json"))
     return metrics

@@ -14,11 +14,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from src.preprocessing.split_data import chronological_split, get_time_series_cv
-from src.utils.config import MODEL_DIR, RANDOM_STATE, TARGET_COLUMN
+from src.utils.config import MODEL_DIR, RANDOM_STATE
+from src.utils import config as project_config
 from src.utils.metrics import classification_metrics, regression_metrics, save_metrics
 
 DATE_COLUMNS = {"TransactionDate"}
-EXCLUDED_COLUMNS = {TARGET_COLUMN, "Liquidity_Risk", *DATE_COLUMNS}
+
+
 
 
 def load_feature_data(path: str | Path) -> pd.DataFrame:
@@ -27,9 +29,11 @@ def load_feature_data(path: str | Path) -> pd.DataFrame:
     return df.sort_values("TransactionDate").reset_index(drop=True)
 
 
-def feature_columns(df: pd.DataFrame, target: str = TARGET_COLUMN) -> list[str]:
+def feature_columns(df: pd.DataFrame, target: str | None = None) -> list[str]:
     """Return model feature columns, excluding target/date/leakage columns."""
-    excluded = set(EXCLUDED_COLUMNS)
+    if target is None:
+        target = project_config.TARGET_COLUMN
+    excluded = {project_config.TARGET_COLUMN, "Liquidity_Risk", *DATE_COLUMNS}
     excluded.add(target)
     return [column for column in df.columns if column not in excluded]
 
@@ -68,9 +72,10 @@ def train_tree_regressor(
         n_jobs=-1,
     )
     train_validation = pd.concat([splits.train, splits.validation]).reset_index(drop=True)
-    search.fit(train_validation[features], train_validation[TARGET_COLUMN])
+    target_col = project_config.TARGET_COLUMN
+    search.fit(train_validation[features], train_validation[target_col])
     predictions = search.predict(splits.test[features])
-    metrics = regression_metrics(splits.test[TARGET_COLUMN], predictions)
+    metrics = regression_metrics(splits.test[target_col], predictions)
     metrics["Best_Params"] = search.best_params_
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(search.best_estimator_, MODEL_DIR / f"{model_name}.joblib")

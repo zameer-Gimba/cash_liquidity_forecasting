@@ -8,11 +8,15 @@ import streamlit as st
 
 st.title("Analytics")
 uploaded = st.file_uploader("Upload feature-engineered CSV", type=["csv"])
-path = Path("data/feature_engineered_dataset/features.csv")
+# prefer the project's feature_engineered_dataset file if present
+default_path = Path("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+alt_path = Path("data/feature_engineered_dataset/features.csv")
 if uploaded:
     df = pd.read_csv(uploaded, parse_dates=["TransactionDate"])
-elif path.exists():
-    df = pd.read_csv(path, parse_dates=["TransactionDate"])
+elif default_path.exists():
+    df = pd.read_csv(default_path, parse_dates=["TransactionDate"])
+elif alt_path.exists():
+    df = pd.read_csv(alt_path, parse_dates=["TransactionDate"])
 else:
     st.warning("No feature dataset found. Run preprocessing or upload a CSV.")
     st.stop()

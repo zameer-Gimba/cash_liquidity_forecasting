@@ -18,7 +18,7 @@ The expected raw transaction dataset spans approximately December 2021 through 2
 - `Credit`
 - `Balance`
 
-The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Cash_Demand_Next_Day`, defined as the next day's withdrawal demand.
+The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Withdrawal_Tomorrow`, defined as the next day's withdrawal demand.
 
 ## Repository Structure
 
@@ -132,6 +132,16 @@ Pages:
 - Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
 
 Forecasting uses `data/feature_engineered_dataset/features.csv` by default, but the page also allows users to upload a feature-engineered CSV at runtime. Supported model choices are Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM, LSTM fallback MLP, Best Available, and Historical Baseline.
+
+streamlit run streamlit_app/app.py
+```
+
+Pages:
+
+- Dashboard: current date, predicted tomorrow demand, recommended reserve, risk level, model used, confidence score.
+- Forecasting: select a future date, generate prediction, and display reserve plus safety buffer.
+- Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
+- Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
 
 
 ## Publishing to GitHub

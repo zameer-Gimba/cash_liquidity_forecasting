@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.models.predict import recommended_cash_reserve
 from src.utils.config import SAFETY_BUFFER
@@ -13,8 +19,8 @@ st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", la
 st.title("Predictive Liquidity Model for Agent Banking in Nigeria")
 st.caption("Decision support for POS cash reserve planning")
 
-predicted = st.session_state.get("predicted_tomorrow_demand", 0.0)
-model_used = st.session_state.get("model_used", "Best saved model")
+predicted = st.session_state.get("model_prediction", st.session_state.get("predicted_tomorrow_demand", 0.0))
+model_used = st.session_state.get("model_used", st.session_state.get("selected_model", "Best saved model"))
 reserve = recommended_cash_reserve(float(predicted), SAFETY_BUFFER)
 risk = "High" if predicted > 0 and reserve > predicted * 1.1 else "Low"
 

@@ -2,63 +2,227 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
 
-from src.models.predict import MODEL_ARTIFACTS, available_model_artifacts, load_feature_history, predict_for_date
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.models.predict import recommended_cash_reserve
 from src.utils.config import SAFETY_BUFFER
-
-
-@st.cache_data(show_spinner=False)
-def _load_history_from_path(path: str | None) -> pd.DataFrame:
-    return load_feature_history(path)
-
+from src.models.predict import LiquidityPredictor
+from src.models.common import load_feature_data
+from src.utils.config import MODEL_DIR
+import importlib
+import src.utils.config as config_module
+import src.models.common as common_module
+import src.models.evaluate_models as evaluate_module
+import joblib
+import numpy as np
+import math
+from pathlib import Path as _Path
 
 st.title("Forecasting")
-st.caption("Generate date-aware withdrawal demand forecasts from saved models or a safe historical baseline.")
 
-uploaded = st.file_uploader("Optional: upload feature-engineered CSV", type=["csv"])
-try:
-    if uploaded is not None:
-        history = pd.read_csv(uploaded, parse_dates=["TransactionDate"]).sort_values("TransactionDate")
+if "future_date" not in st.session_state:
+    st.session_state["future_date"] = date.today() + timedelta(days=1)
+if "predicted_tomorrow_demand" not in st.session_state:
+    st.session_state["predicted_tomorrow_demand"] = 0.0
+if "model_prediction" not in st.session_state:
+    st.session_state["model_prediction"] = st.session_state["predicted_tomorrow_demand"]
+if "buffer" not in st.session_state:
+    st.session_state["buffer"] = SAFETY_BUFFER
+if "selected_model" not in st.session_state:
+    st.session_state["selected_model"] = "Random Forest"
+if "confidence_score" not in st.session_state:
+    st.session_state["confidence_score"] = "N/A"
+
+future_date = st.date_input(
+    "Select future date",
+    value=st.session_state["future_date"],
+    min_value=date.today(),
+)
+buffer = st.slider(
+    "Safety buffer",
+    min_value=0.0,
+    max_value=0.5,
+    value=st.session_state["buffer"],
+    step=0.01,
+)
+
+# Training controls
+st.markdown("### Train and Use Saved Model")
+model_options = {
+    "Random Forest": "src.models.train_random_forest",
+    "XGBoost": "src.models.train_xgboost",
+    "LightGBM": "src.models.train_lightgbm",
+    "LSTM": "src.models.train_lstm",
+    "ARIMA": "src.models.train_arima",
+    "SARIMA": "src.models.train_sarima",
+}
+selected_model = st.selectbox(
+    "Model to train",
+    list(model_options.keys()),
+    index=list(model_options.keys()).index(st.session_state["selected_model"]),
+)
+st.session_state["selected_model"] = selected_model
+cols = st.columns([1, 1, 1, 1])
+with cols[0]:
+    if st.button("Train Selected Model"):
+        with st.spinner("Training selected model (this may take a while)..."):
+            data_path = Path("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+            if not data_path.exists():
+                st.error(f"Feature dataset not found: {data_path}")
+            else:
+                try:
+                    # reload modules
+                    importlib.reload(config_module)
+                    importlib.reload(common_module)
+                    train_module = importlib.import_module(model_options[selected_model])
+                    importlib.reload(train_module)
+                    metrics = train_module.main(str(data_path))
+                    st.success("Training complete")
+                    st.json(metrics)
+                    st.write(f"Saved model artifacts to {MODEL_DIR}")
+                    # update model comparison table
+                    try:
+                        evaluate_module.save_comparison_tables()
+                        st.success("Updated model comparison table")
+                    except Exception:
+                        st.info("Could not update model comparison table automatically.")
+                    # attempt quick prediction to update dashboard
+                    try:
+                        df = load_feature_data(str(data_path))
+                        def try_quick_predict(model_name: str, df: pd.DataFrame) -> float | None:
+                            artifact_map = {
+                                "Random Forest": "random_forest.joblib",
+                                "XGBoost": "xgboost.joblib",
+                                "LightGBM": "lightgbm.joblib",
+                                "LSTM": "lstm_fallback_mlp.joblib",
+                                "ARIMA": "arima.joblib",
+                                "SARIMA": "sarima.joblib",
+                            }
+                            model_file = artifact_map.get(model_name)
+                            if model_file is None:
+                                return None
+                            model_path = _Path(MODEL_DIR) / model_file
+                            if not model_path.exists() and model_name == "LSTM" and (_Path(MODEL_DIR) / "lstm.keras").exists():
+                                model_path = _Path(MODEL_DIR) / "lstm.keras"
+                            if not model_path.exists():
+                                return None
+                            try:
+                                predictor = LiquidityPredictor(model_path)
+                                preds = predictor.predict(df, history=df)
+                                last_pred = preds.sort_values("TransactionDate").iloc[-1]
+                                return float(last_pred["Predicted_Withdrawal_Demand"])
+                            except Exception:
+                                return None
+
+                        pred_value = try_quick_predict(selected_model, df)
+                        if pred_value is not None and not (math.isnan(pred_value)):
+                            st.session_state["model_prediction"] = float(pred_value)
+                            st.session_state["predicted_tomorrow_demand"] = float(pred_value)
+                            st.session_state["model_used"] = f"{selected_model}"
+                            st.session_state["confidence_score"] = "N/A"
+                            st.success("Dashboard updated with quick prediction from trained model.")
+                    except Exception:
+                        pass
+                except KeyError as e:
+                    st.error("Training failed: required target column not found in dataset.")
+                    st.error(str(e))
+                    try:
+                        df = load_feature_data(str(data_path))
+                        expected = config_module.TARGET_COLUMN
+                        available = list(df.columns)
+                        if expected not in available:
+                            st.warning(f"Expected target column '{expected}' not present. Available columns: {len(available)}")
+                            st.info("Ensure your feature dataset contains the configured target column or update src/utils/config.py to match the dataset.")
+                    except Exception:
+                        st.info("Could not load dataset for diagnostics.")
+                except Exception as e:
+                    st.error("Training failed — see exception details.")
+                    st.exception(e)
+with cols[1]:
+    if st.button("Run Saved Model Predictions"):
+        artifact_map = {
+            "Random Forest": "random_forest.joblib",
+            "XGBoost": "xgboost.joblib",
+            "LightGBM": "lightgbm.joblib",
+            "LSTM": "lstm_fallback_mlp.joblib",
+            "ARIMA": "arima.joblib",
+            "SARIMA": "sarima.joblib",
+        }
+        model_file = artifact_map.get(selected_model, "random_forest.joblib")
+        model_path = MODEL_DIR / model_file
+        if selected_model == "LSTM" and not model_path.exists() and (MODEL_DIR / "lstm.keras").exists():
+            model_path = MODEL_DIR / "lstm.keras"
+        if not model_path.exists():
+            st.error("Saved model not found. Train a model first.")
+        else:
+            try:
+                df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+                predictor = LiquidityPredictor(model_path)
+                preds = predictor.predict(df, history=df)
+                last_pred = preds.sort_values("TransactionDate").iloc[-1]
+                prediction_value = float(last_pred["Predicted_Withdrawal_Demand"])
+                st.session_state["model_prediction"] = prediction_value
+                st.session_state["predicted_tomorrow_demand"] = prediction_value
+                st.session_state["model_used"] = selected_model
+                st.session_state["confidence_score"] = "N/A"
+                st.success("Predictions generated and dashboard updated.")
+                st.dataframe(preds.tail(50), use_container_width=True)
+            except Exception as e:
+                st.error("Unable to generate predictions from the selected saved model.")
+                st.exception(e)
+with cols[2]:
+    if st.button("Clear Saved Models"):
+        for p in MODEL_DIR.glob("*.joblib"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        st.warning("Deleted saved models from MODEL_DIR")
+
+if st.button("Generate prediction"):
+    artifact_map = {
+        "Random Forest": "random_forest.joblib",
+        "XGBoost": "xgboost.joblib",
+        "LightGBM": "lightgbm.joblib",
+        "LSTM": "lstm_fallback_mlp.joblib",
+        "ARIMA": "arima.joblib",
+        "SARIMA": "sarima.joblib",
+    }
+    model_file = artifact_map.get(selected_model)
+    model_path = MODEL_DIR / model_file if model_file else None
+    if selected_model == "LSTM":
+        fallback_path = MODEL_DIR / "lstm.keras"
+        if (model_path is None or not model_path.exists()) and fallback_path.exists():
+            model_path = fallback_path
+    if model_path is None or not model_path.exists():
+        st.error("Saved model not found. Train the selected model first.")
     else:
-        history = _load_history_from_path(None)
-except Exception as exc:
-    st.error(str(exc))
-    st.info("Run preprocessing first or upload a feature-engineered CSV containing TransactionDate and Target_Cash_Demand_Next_Day.")
-    st.stop()
-
-latest_date = pd.Timestamp(history["TransactionDate"].max()).date()
-default_forecast_date = max(date.today() + timedelta(days=1), latest_date + timedelta(days=1))
-future_date = st.date_input("Select forecast date", value=default_forecast_date, min_value=latest_date + timedelta(days=1))
-buffer = st.slider("Safety buffer", min_value=0.0, max_value=0.5, value=SAFETY_BUFFER, step=0.01)
-
-artifacts = available_model_artifacts()
-model_options = ["Best Available", *MODEL_ARTIFACTS.keys(), "Historical Baseline"]
-model_name = st.selectbox("Model", options=model_options, index=0)
-
-with st.expander("Available saved model artifacts", expanded=False):
-    if artifacts:
-        st.write({name: str(path) for name, path in artifacts.items()})
-    else:
-        st.warning("No saved model artifacts found. Forecasting will use the historical baseline.")
-
-if st.button("Generate prediction", type="primary"):
-    result = predict_for_date(model_name, future_date, history, safety_buffer=buffer)
-    st.session_state["predicted_tomorrow_demand"] = result.predicted_withdrawal_demand
-    st.session_state["model_used"] = result.model_name
-    st.session_state["confidence_score"] = result.confidence_score
-
-    cols = st.columns(4)
-    cols[0].metric("Forecast Date", result.forecast_date.date().isoformat())
-    cols[1].metric("Predicted Withdrawal Demand", f"₦{result.predicted_withdrawal_demand:,.0f}")
-    cols[2].metric("Recommended Cash Reserve", f"₦{result.recommended_cash_reserve:,.0f}")
-    cols[3].metric("Risk Level", result.risk_level)
-    st.write(f"Safety buffer: **{result.safety_buffer:.0%}**")
-    st.write(f"Model used: **{result.model_name}**")
-    if result.source != "trained_artifact":
-        st.warning("A trained artifact was unavailable or incompatible for this selection, so the app used the historical baseline instead of failing.")
-
-st.subheader("Recent history")
-st.dataframe(history.tail(10), use_container_width=True)
+        try:
+            df = load_feature_data("data/feature_engineered_dataset/feature_engineered_dataset.csv")
+            predictor = LiquidityPredictor(model_path)
+            preds = predictor.predict(df, history=df)
+            last_pred = preds.sort_values("TransactionDate").iloc[-1]
+            prediction_value = float(last_pred["Predicted_Withdrawal_Demand"])
+            st.session_state["model_prediction"] = prediction_value
+            st.session_state["predicted_tomorrow_demand"] = prediction_value
+            st.session_state["model_used"] = selected_model
+            st.session_state["confidence_score"] = "N/A"
+            st.session_state["future_date"] = future_date
+            st.session_state["buffer"] = buffer
+            reserve = recommended_cash_reserve(prediction_value, buffer)
+            st.metric("Forecast date", future_date.isoformat())
+            st.metric("Predicted Withdrawal Demand", f"₦{prediction_value:,.0f}")
+            st.metric("Safety Buffer", f"{buffer:.0%}")
+            st.metric("Recommended Cash Reserve", f"₦{reserve:,.0f}")
+            st.success("Generated prediction from the selected model and saved session state.")
+        except Exception as e:
+            st.error("Unable to generate prediction from the selected model.")
+            st.exception(e)
