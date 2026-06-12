@@ -124,6 +124,15 @@ The default `requirements.txt` intentionally excludes TensorFlow and other heavy
 pip install -r requirements-ml.txt
 ```
 
+Pages:
+
+- Dashboard: current date, predicted tomorrow demand, recommended reserve, risk level, model used, confidence score.
+- Forecasting: select a future date and model, generate a date-aware prediction from saved artifacts, and fall back to a historical baseline instead of crashing when an artifact is missing or incompatible.
+- Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
+- Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
+
+Forecasting uses `data/feature_engineered_dataset/features.csv` by default, but the page also allows users to upload a feature-engineered CSV at runtime. Supported model choices are Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM, LSTM fallback MLP, Best Available, and Historical Baseline.
+
 streamlit run streamlit_app/app.py
 ```
 
