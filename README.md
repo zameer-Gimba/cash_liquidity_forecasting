@@ -115,8 +115,10 @@ Run locally:
 
 ```bash
 pip install -r requirements.txt
-streamlit run streamlit_app/app.py
+streamlit run streamlit_app/app.py --server.address=0.0.0.0 --server.port=8501
 ```
+
+When using GitHub Codespaces or GitHub.dev, open the forwarded port preview URL for port `8501` rather than the repository root.
 
 The default `requirements.txt` intentionally excludes TensorFlow and other heavyweight optional training libraries so Streamlit Community Cloud can deploy successfully on newer Python runtimes. Use `requirements-ml.txt` only for local/full training environments.
 
