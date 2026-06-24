@@ -18,7 +18,7 @@ def test_build_feature_dataset_creates_required_features() -> None:
         }
     )
     features = build_feature_dataset(df)
-    for column in ["DayOfWeek", "Month", "WeekOfMonth", "IsWeekend", "Lag_1_Day", "Lag_7_Day", "Lag_30_Day", "Cash_Flow_Ratio", "Transaction_Intensity", "Liquidity_Risk"]:
+    for column in ["DayOfWeek", "Month", "WeekOfMonth", "IsWeekend", "Lag_1_Withdrawal_Amount", "Lag_7_Withdrawal_Amount", "Lag_30_Withdrawal_Amount", "Credit_Debit_Ratio", "Transaction_Intensity", "Liquidity_Risk"]:
         assert column in features.columns
     assert TARGET_COLUMN in features.columns
     assert len(features) == 39
