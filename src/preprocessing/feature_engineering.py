@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TARGET_COLUMN = "Target_Withdrawal_Tomorrow"
+TARGET_COLUMN = "Target_Next_Day_Withdrawal_Amount"
 
 
 def infer_transaction_type(narration: pd.Series) -> pd.Series:
@@ -56,14 +56,14 @@ def add_liquidity_features(df: pd.DataFrame) -> pd.DataFrame:
         if column not in featured.columns:
             featured[column] = 0.0
     featured["Net_Flow"] = featured["Total_Credit"] - featured["Total_Debit"]
-    featured["Rolling_7_Day_Average"] = featured["Total_Debit"].rolling(7, min_periods=1).mean()
-    featured["Rolling_30_Day_Average"] = featured["Total_Debit"].rolling(30, min_periods=1).mean()
-    featured["Lag_1_Day"] = featured["Total_Debit"].shift(1)
-    featured["Lag_7_Day"] = featured["Total_Debit"].shift(7)
-    featured["Lag_30_Day"] = featured["Total_Debit"].shift(30)
-    featured["Cash_Flow_Ratio"] = featured["Total_Debit"] / featured["Total_Credit"].replace(0, np.nan)
-    featured["Cash_Flow_Ratio"] = featured["Cash_Flow_Ratio"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    featured["Transaction_Intensity"] = featured["Transaction_Count"] / (featured["Rolling_7_Day_Average"].replace(0, np.nan))
+    featured["Rolling_7_Day_Withdrawal_Amount"] = featured["Total_Debit"].rolling(7, min_periods=1).mean()
+    featured["Rolling_30_Day_Withdrawal_Amount"] = featured["Total_Debit"].rolling(30, min_periods=1).mean()
+    featured["Lag_1_Withdrawal_Amount"] = featured["Total_Debit"].shift(1)
+    featured["Lag_7_Withdrawal_Amount"] = featured["Total_Debit"].shift(7)
+    featured["Lag_30_Withdrawal_Amount"] = featured["Total_Debit"].shift(30)
+    featured["Credit_Debit_Ratio"] = featured["Total_Debit"] / featured["Total_Credit"].replace(0, np.nan)
+    featured["Credit_Debit_Ratio"] = featured["Credit_Debit_Ratio"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    featured["Transaction_Intensity"] = featured["Transaction_Count"] / (featured["Rolling_7_Day_Withdrawal_Amount"].replace(0, np.nan))
     featured["Transaction_Intensity"] = featured["Transaction_Intensity"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
     featured[TARGET_COLUMN] = featured["Total_Debit"].shift(-1)
     return featured
