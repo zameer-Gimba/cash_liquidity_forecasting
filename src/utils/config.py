@@ -1,11 +1,7 @@
-"""Central, import-safe configuration for the liquidity forecasting project.
-
-This module intentionally has no third-party dependencies so Streamlit pages can
-import constants even when optional ML packages are unavailable.
-"""
+"""Central configuration for the liquidity forecasting project."""
 from __future__ import annotations
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
@@ -55,20 +51,17 @@ MODEL_SUFFIX_DEP_CLF = "_deposit_classifier"
 MODEL_SUFFIX_DEP_REG = "_deposit_regressor"
 
 class ProjectConfig:
-    """Small compatibility container for legacy code expecting config attributes."""
-    target_column = TARGET_COLUMN
-    date_column = DATE_COLUMN
-    safety_buffer = SAFETY_BUFFER_WITHDRAWAL
-    random_state = RANDOM_STATE
-    model_dir = MODEL_DIR
-    results_dir = RESULTS_DIR
-    figures_dir = FIGURES_DIR
+    target_column: str = TARGET_COLUMN
+    date_column: str = DATE_COLUMN
+    safety_buffer: float = SAFETY_BUFFER_WITHDRAWAL
+    random_state: int = RANDOM_STATE
+    model_dir: Path = MODEL_DIR
+    results_dir: Path = RESULTS_DIR
+    figures_dir: Path = FIGURES_DIR
 
-def project_path(relative: Union[str, Path]) -> Path:
-    """Resolve a repository-relative path from the project root."""
+def project_path(relative: str | Path) -> Path:
     return ROOT_DIR / relative
 
 def ensure_directories() -> None:
-    """Create output directories without touching the immutable dataset file."""
     for directory in [MODEL_DIR, RESULTS_DIR, FIGURES_DIR, TABLES_DIR, FEATURE_DATA_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
