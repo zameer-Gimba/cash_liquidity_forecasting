@@ -1,21 +1,25 @@
-"""Central configuration for the liquidity forecasting project."""
-from __future__ import annotations
-from dataclasses import dataclass
+# src/utils/config.py
+# Canonical configuration for Predictive Liquidity Model for Agent Banking
+# This file is the single source of truth for all constants used across the project.
+
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "data"
-FEATURE_DATA_DIR = DATA_DIR / "feature_engineered_dataset"
-MODEL_DIR = ROOT_DIR / "models" / "saved_models"
-REPORTS_DIR = ROOT_DIR / "reports"
-RESULTS_DIR = REPORTS_DIR / "results"
-FIGURES_DIR = REPORTS_DIR / "figures"
-TABLES_DIR = REPORTS_DIR / "tables"
-RANDOM_STATE = 42
+# ── Paths ────────────────────────────────────────────────────────────────────
+ROOT_DIR              = Path(__file__).resolve().parents[2]
+DATA_DIR              = ROOT_DIR / "data" / "feature_engineered_dataset"
+MODEL_DIR             = ROOT_DIR / "models" / "saved_models"
+REPORTS_DIR           = ROOT_DIR / "reports" / "results"
+SCHEMA_PATH           = ROOT_DIR / "reference_schema.json"
+CANONICAL_DATASET_PATH = DATA_DIR / "liquidity_dataset.csv"
+DEPRECATED_DATASET_PATH = DATA_DIR / "features_DEPRECATED.csv"
 
-CANONICAL_DATASET_PATH = "data/feature_engineered_dataset/liquidity_dataset.csv"
-SCHEMA_PATH = "reference_schema.json"
-DEPRECATED_DATASET_PATH = "data/feature_engineered_dataset/features_DEPRECATED.csv"
+# ── Column names ─────────────────────────────────────────────────────────────
+DATE_COL           = "TransactionDate"
+TARGET_WITHDRAWAL  = "Target_Next_Day_Withdrawal_Amount"
+TARGET_DEPOSIT     = "Target_Next_Day_Deposit_Amount"
+TARGET_HAS_DEPOSIT = "Target_Has_Deposit_Tomorrow"
+
+# ── Feature columns (47) — exact order matches liquidity_dataset.csv ─────────
 FEATURE_COLS = [
     "Total_Debit", "Total_Credit", "Transaction_Count", "Closing_Balance",
     "Net_Flow", "Withdrawal_Amount", "Withdrawal_Count", "Deposit_Amount",
@@ -33,35 +37,16 @@ FEATURE_COLS = [
     "Rolling_30_Day_Withdrawal_Amount", "Rolling_30_Day_Deposit_Amount",
     "Has_Deposit",
 ]
-TARGET_WITHDRAWAL = "Target_Next_Day_Withdrawal_Amount"
-TARGET_DEPOSIT = "Target_Next_Day_Deposit_Amount"
-TARGET_HAS_DEPOSIT = "Target_Has_Deposit_Tomorrow"
-DATE_COL = "TransactionDate"
-TARGET_COLUMN = TARGET_WITHDRAWAL
-DATE_COLUMN = DATE_COL
-SAFETY_BUFFER_WITHDRAWAL = 0.15
-SAFETY_BUFFER_DEPOSIT = 0.10
-SAFETY_BUFFER = SAFETY_BUFFER_WITHDRAWAL
-LSTM_SEQUENCE_LENGTH = 30
-TRAIN_SPLIT = 0.70
-VAL_SPLIT = 0.15
-TEST_SPLIT = 0.15
-MODEL_SUFFIX_WITHDRAWAL = "_withdrawal"
-MODEL_SUFFIX_DEP_CLF = "_deposit_classifier"
-MODEL_SUFFIX_DEP_REG = "_deposit_regressor"
 
-class ProjectConfig:
-    target_column: str = TARGET_COLUMN
-    date_column: str = DATE_COLUMN
-    safety_buffer: float = SAFETY_BUFFER_WITHDRAWAL
-    random_state: int = RANDOM_STATE
-    model_dir: Path = MODEL_DIR
-    results_dir: Path = RESULTS_DIR
-    figures_dir: Path = FIGURES_DIR
+# ── Model settings ───────────────────────────────────────────────────────────
+SAFETY_BUFFER_WITHDRAWAL = 0.15   # 15% buffer on predicted withdrawal
+SAFETY_BUFFER_DEPOSIT    = 0.10   # 10% buffer on predicted deposit top-up
+LSTM_SEQUENCE_LENGTH     = 30
+TRAIN_SPLIT              = 0.70
+VAL_SPLIT                = 0.15
+TEST_SPLIT               = 0.15
 
-def project_path(relative: str | Path) -> Path:
-    return ROOT_DIR / relative
-
-def ensure_directories() -> None:
-    for directory in [MODEL_DIR, RESULTS_DIR, FIGURES_DIR, TABLES_DIR, FEATURE_DATA_DIR]:
-        directory.mkdir(parents=True, exist_ok=True)
+# ── Model artefact naming ────────────────────────────────────────────────────
+MODEL_SUFFIX_WITHDRAWAL  = "_withdrawal"
+MODEL_SUFFIX_DEP_CLF     = "_deposit_classifier"
+MODEL_SUFFIX_DEP_REG     = "_deposit_regressor"
