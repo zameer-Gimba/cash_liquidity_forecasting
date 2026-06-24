@@ -1,35 +1,25 @@
-"""Streamlit entrypoint for the liquidity decision support dashboard."""
 from __future__ import annotations
-
-from datetime import date
+import joblib, pandas as pd, streamlit as st
 from pathlib import Path
-import sys
-
-import pandas as pd
-import streamlit as st
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.models.predict import recommended_cash_reserve
-from src.utils.config import SAFETY_BUFFER
-
-st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", layout="wide")
-st.title("Predictive Liquidity Model for Agent Banking in Nigeria")
-st.caption("Decision support for POS cash reserve planning")
-
-predicted = st.session_state.get("model_prediction", st.session_state.get("predicted_tomorrow_demand", 0.0))
-model_used = st.session_state.get("model_used", st.session_state.get("selected_model", "Best saved model"))
-reserve = recommended_cash_reserve(float(predicted), SAFETY_BUFFER)
-risk = "High" if predicted > 0 and reserve > predicted * 1.1 else "Low"
-
-cols = st.columns(6)
-cols[0].metric("Current Date", date.today().isoformat())
-cols[1].metric("Predicted Tomorrow Demand", f"₦{predicted:,.0f}")
-cols[2].metric("Recommended Cash Reserve", f"₦{reserve:,.0f}")
-cols[3].metric("Risk Level", risk)
-cols[4].metric("Model Used", model_used)
-cols[5].metric("Confidence Score", st.session_state.get("confidence_score", "N/A"))
-
-st.info("Use the sidebar pages for forecasting, analytics, and model comparison. Train models first to populate live predictions and metrics.")
+from src.models.predict_deposit import predict_deposit
+from src.utils.config import FEATURE_COLS, MODEL_DIR, SAFETY_BUFFER_DEPOSIT, SAFETY_BUFFER_WITHDRAWAL
+st.title('Dashboard')
+df = st.session_state.get('clean_dataset')
+if df is None: st.warning('Load a dataset from the main page.'); st.stop()
+features = df[FEATURE_COLS].tail(1)
+def _baseline(col): return float(df[col].tail(30).mean())
+def _load(name):
+    p=MODEL_DIR/name
+    return joblib.load(p) if p.exists() else None
+try:
+    rf=_load('rf_withdrawal.pkl'); pred_w=float(rf.predict(features)[0]) if rf else _baseline('Withdrawal_Amount')
+except Exception as exc:
+    st.warning(f'Withdrawal model incompatible; using historical baseline. {exc}'); pred_w=_baseline('Withdrawal_Amount')
+try:
+    clf=_load('rf_deposit_classifier.pkl'); reg=_load('rf_deposit_regressor.pkl')
+    pred_d=predict_deposit(features, clf, reg) if clf and reg else 0.0
+except Exception as exc:
+    st.warning(f'Deposit models unavailable/incompatible; using baseline. {exc}'); pred_d=float(df.loc[df['Deposit_Amount']>0,'Deposit_Amount'].tail(30).mean() or 0.0)
+q33,q66=df['Withdrawal_Amount'].quantile([.33,.66]); risk='LOW' if pred_w < q33 else 'MEDIUM' if pred_w <= q66 else 'HIGH'
+c=st.columns(4); c[0].metric('Predicted Withdrawal Demand (Next Day)', f'₦{pred_w:,.0f}'); c[1].metric('Recommended Cash Reserve', f'₦{pred_w*(1+SAFETY_BUFFER_WITHDRAWAL):,.0f}'); c[2].metric('Liquidity Risk', risk); c[3].metric('Recommended Float Top-Up', f'₦{pred_d*(1+SAFETY_BUFFER_DEPOSIT):,.0f}' if pred_d else 'No deposit expected tomorrow')
+st.line_chart(df.set_index('TransactionDate')[['Withdrawal_Amount','Deposit_Amount']])
