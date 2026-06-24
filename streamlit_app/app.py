@@ -1,24 +1,35 @@
 """Streamlit entrypoint with canonical dataset loading and upload processing."""
 from __future__ import annotations
-from pathlib import Path
+
+# 1. MUST BE FIRST: Setup paths before any other imports happen
 import sys
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path: 
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# 2. Third-party packages
 import pandas as pd
 import streamlit as st
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
+
+# 3. Local repository imports
 from src.preprocessing.pipeline import process_dataset, validate_schema
 from src.utils.config import CANONICAL_DATASET_PATH, FEATURE_COLS, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT, TARGET_WITHDRAWAL
 from src.utils.dataset_detector import attempt_auto_repair, detect_dataset_type
 
 st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", layout="wide")
+
 for k, v in {'clean_dataset': None, 'dataset_type': None, 'repair_log': [], 'dataset_validated': False, 'dataset_source': 'canonical'}.items():
     st.session_state.setdefault(k, v)
+
 if st.session_state['clean_dataset'] is None:
-    df = pd.read_csv(PROJECT_ROOT / CANONICAL_DATASET_PATH)
+    # FIX: CANONICAL_DATASET_PATH is already an absolute path from config.py
+    df = pd.read_csv(CANONICAL_DATASET_PATH)
     st.session_state.update(clean_dataset=df, dataset_type='FEATURE_ENGINEERED', dataset_validated=True, dataset_source='canonical')
 
 st.title("Predictive Liquidity Model for Agent Banking in Nigeria")
 st.caption("Decision support for POS cash reserve and float planning")
+
 with st.sidebar:
     st.header("Dataset")
     uploaded = st.file_uploader("Upload bank statement or engineered CSV", type=['csv','xlsx'])
