@@ -1,122 +1,43 @@
-"""Shared model training helpers."""
+"""Shared model training and evaluation helpers for canonical liquidity data."""
 from __future__ import annotations
-
 from pathlib import Path
-from typing import Any
-
+from typing import Iterable
 import joblib
+import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, r2_score, recall_score, roc_auc_score
+from src.utils.config import CANONICAL_DATASET_PATH, DATE_COL, FEATURE_COLS, MODEL_DIR, RANDOM_STATE, ROOT_DIR, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT, TARGET_WITHDRAWAL, TRAIN_SPLIT, VAL_SPLIT
 
-from src.preprocessing.split_data import chronological_split, get_time_series_cv
-from src.utils.config import MODEL_DIR, RANDOM_STATE
-from src.utils import config as project_config
-from src.utils.metrics import classification_metrics, regression_metrics, save_metrics
+def load_canonical_data(path: str | Path | None = None) -> pd.DataFrame:
+    p = ROOT_DIR / (path or CANONICAL_DATASET_PATH)
+    df = pd.read_csv(p, parse_dates=[DATE_COL]).sort_values(DATE_COL).reset_index(drop=True)
+    missing = [c for c in [DATE_COL, *FEATURE_COLS, TARGET_WITHDRAWAL, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT] if c not in df.columns]
+    if missing: raise KeyError(f"Missing canonical columns: {missing}")
+    return df
 
-DATE_COLUMNS = {"TransactionDate"}
+def chronological_split(df: pd.DataFrame):
+    n = len(df); train_end = int(n * TRAIN_SPLIT); val_end = int(n * (TRAIN_SPLIT + VAL_SPLIT))
+    return df.iloc[:train_end].copy(), df.iloc[train_end:val_end].copy(), df.iloc[val_end:].copy()
 
+def regression_metrics(y_true, y_pred) -> dict[str, float]:
+    y_true = np.asarray(y_true, dtype=float); y_pred = np.asarray(y_pred, dtype=float)
+    denom = np.where(y_true == 0, np.nan, np.abs(y_true))
+    return {"MAE": float(mean_absolute_error(y_true, y_pred)), "RMSE": float(mean_squared_error(y_true, y_pred) ** 0.5), "MAPE": float(np.nanmean(np.abs((y_true-y_pred)/denom))*100 if np.isfinite(denom).any() else 0.0), "R2": float(r2_score(y_true, y_pred))}
 
+def classifier_metrics(y_true, y_pred, y_score=None) -> dict[str, float]:
+    m = {"Accuracy": float(accuracy_score(y_true, y_pred)), "Precision": float(precision_score(y_true, y_pred, zero_division=0)), "Recall": float(recall_score(y_true, y_pred, zero_division=0)), "F1": float(f1_score(y_true, y_pred, zero_division=0))}
+    try: m["ROC_AUC"] = float(roc_auc_score(y_true, y_score if y_score is not None else y_pred))
+    except Exception: m["ROC_AUC"] = 0.0
+    return m
 
-
-def load_feature_data(path: str | Path) -> pd.DataFrame:
-    """Load a feature-engineered CSV dataset."""
-    df = pd.read_csv(path, parse_dates=["TransactionDate"])
-    return df.sort_values("TransactionDate").reset_index(drop=True)
-
-
-def feature_columns(df: pd.DataFrame, target: str | None = None) -> list[str]:
-    """Return model feature columns, excluding target/date/leakage columns."""
-    if target is None:
-        target = project_config.TARGET_COLUMN
-    excluded = {project_config.TARGET_COLUMN, "Liquidity_Risk", *DATE_COLUMNS}
-    excluded.add(target)
-    return [column for column in df.columns if column not in excluded]
-
-
-def build_tree_preprocessor(df: pd.DataFrame, features: list[str]) -> ColumnTransformer:
-    """Build a preprocessing transformer: one-hot encode DayOfWeek; do not scale numeric features."""
-    categorical = [column for column in features if df[column].dtype == "object" or column == "DayOfWeek"]
-    numeric = [column for column in features if column not in categorical]
-    return ColumnTransformer(
-        transformers=[
-            ("numeric", SimpleImputer(strategy="median"), numeric),
-            ("categorical", Pipeline([("imputer", SimpleImputer(strategy="most_frequent")), ("onehot", OneHotEncoder(handle_unknown="ignore"))]), categorical),
-        ]
-    )
-
-
-def train_tree_regressor(
-    df: pd.DataFrame,
-    estimator: Any,
-    param_distributions: dict[str, Any],
-    model_name: str,
-    n_iter: int = 10,
-) -> dict[str, float]:
-    """Train, tune, evaluate, and save a tree-based regression model."""
-    splits = chronological_split(df)
-    features = feature_columns(df)
-    preprocessor = build_tree_preprocessor(df, features)
-    pipeline = Pipeline([("preprocess", preprocessor), ("model", estimator)])
-    search = RandomizedSearchCV(
-        pipeline,
-        param_distributions=param_distributions,
-        n_iter=n_iter,
-        cv=get_time_series_cv(5),
-        scoring="neg_root_mean_squared_error",
-        random_state=RANDOM_STATE,
-        n_jobs=-1,
-    )
-    train_validation = pd.concat([splits.train, splits.validation]).reset_index(drop=True)
-    target_col = project_config.TARGET_COLUMN
-    search.fit(train_validation[features], train_validation[target_col])
-    predictions = search.predict(splits.test[features])
-    metrics = regression_metrics(splits.test[target_col], predictions)
-    metrics["Best_Params"] = search.best_params_
+def save_pickle(model, name: str) -> Path:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(search.best_estimator_, MODEL_DIR / f"{model_name}.joblib")
-    save_metrics(metrics, Path("reports/results") / f"{model_name}_metrics.json")
-    return metrics
+    path = MODEL_DIR / name
+    joblib.dump(model, path)
+    return path
 
+def save_results(rows: Iterable[dict], path: str | Path) -> pd.DataFrame:
+    out = pd.DataFrame(list(rows)); p = ROOT_DIR / path; p.parent.mkdir(parents=True, exist_ok=True); out.to_csv(p, index=False); return out
 
-def train_risk_classifier(df: pd.DataFrame, estimator: Any | None = None, model_name: str = "risk_random_forest") -> dict[str, float]:
-    """Train and save a liquidity-risk classifier."""
-    estimator = estimator or RandomForestClassifier(n_estimators=200, random_state=RANDOM_STATE, class_weight="balanced")
-    splits = chronological_split(df.dropna(subset=["Liquidity_Risk"]))
-    features = feature_columns(df, target="Liquidity_Risk")
-    pipeline = Pipeline([("preprocess", build_tree_preprocessor(df, features)), ("model", estimator)])
-    target_train = splits.train["Liquidity_Risk"]
-    target_test = splits.test["Liquidity_Risk"]
-    label_encoder: LabelEncoder | None = None
-    if estimator.__class__.__name__ == "XGBClassifier":
-        label_encoder = LabelEncoder()
-        target_train = pd.Series(label_encoder.fit_transform(target_train), index=target_train.index)
-    pipeline.fit(splits.train[features], target_train)
-    predictions = pipeline.predict(splits.test[features])
-    if label_encoder is not None:
-        predictions = label_encoder.inverse_transform(predictions.astype(int))
-    metrics = classification_metrics(target_test, predictions)
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    artifact: Any = {"pipeline": pipeline, "label_encoder": label_encoder} if label_encoder is not None else pipeline
-    joblib.dump(artifact, MODEL_DIR / f"{model_name}.joblib")
-    save_metrics(metrics, Path("reports/results") / f"{model_name}_metrics.json")
-    return metrics
-
-
-def default_random_forest_params() -> dict[str, list[Any]]:
-    """Parameter search space for RandomForestRegressor."""
-    return {
-        "model__n_estimators": [100, 200, 400],
-        "model__max_depth": [None, 5, 10, 20],
-        "model__min_samples_split": [2, 5, 10],
-        "model__min_samples_leaf": [1, 2, 4],
-    }
-
-
-def default_random_forest_regressor() -> RandomForestRegressor:
-    """Return a reproducible RandomForestRegressor."""
-    return RandomForestRegressor(random_state=RANDOM_STATE, n_jobs=-1)
+def x_y(df: pd.DataFrame, target: str = TARGET_WITHDRAWAL):
+    return df[FEATURE_COLS], df[target]

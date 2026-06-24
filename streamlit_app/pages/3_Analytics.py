@@ -1,28 +1,19 @@
-"""Analytics page for historical liquidity trends."""
 from __future__ import annotations
-
-from pathlib import Path
-
-import pandas as pd
-import streamlit as st
-
-st.title("Analytics")
-uploaded = st.file_uploader("Upload feature-engineered CSV", type=["csv"])
-# prefer the project's feature_engineered_dataset file if present
-default_path = Path("data/feature_engineered_dataset/feature_engineered_dataset.csv")
-alt_path = Path("data/feature_engineered_dataset/features.csv")
-if uploaded:
-    df = pd.read_csv(uploaded, parse_dates=["TransactionDate"])
-elif default_path.exists():
-    df = pd.read_csv(default_path, parse_dates=["TransactionDate"])
-elif alt_path.exists():
-    df = pd.read_csv(alt_path, parse_dates=["TransactionDate"])
-else:
-    st.warning("No feature dataset found. Run preprocessing or upload a CSV.")
-    st.stop()
-
-st.line_chart(df.set_index("TransactionDate")[["Total_Debit", "Total_Credit"]])
-st.subheader("Monthly trends")
-st.bar_chart(df.groupby("Month")[["Total_Debit", "Total_Credit", "Transaction_Count"]].mean())
-st.subheader("Rolling averages")
-st.line_chart(df.set_index("TransactionDate")[["Rolling_7_Day_Average", "Rolling_30_Day_Average"]])
+import pandas as pd, streamlit as st
+st.title('Analytics')
+df=st.session_state.get('clean_dataset')
+if df is None: st.warning('Load a dataset from the main page.'); st.stop()
+df=df.copy(); df['TransactionDate']=pd.to_datetime(df['TransactionDate'])
+tabs=st.tabs(['Withdrawal Analytics','Deposit Analytics','Category Breakdown'])
+with tabs[0]:
+    st.line_chart(df.set_index('TransactionDate')[['Withdrawal_Amount','Rolling_7_Day_Withdrawal_Amount','Rolling_30_Day_Withdrawal_Amount']])
+    st.bar_chart(df.groupby('DayOfWeek')['Withdrawal_Amount'].mean())
+with tabs[1]:
+    st.bar_chart(df.set_index('TransactionDate')['Deposit_Amount'])
+    st.bar_chart(df.groupby('DayOfWeek')['Has_Deposit'].mean())
+    st.line_chart(df.set_index('TransactionDate')['Rolling_30_Day_Deposit_Amount'])
+    st.dataframe(df.groupby('Has_Deposit')[['Total_Debit','Total_Credit','Transaction_Count','Deposit_Amount']].mean())
+with tabs[2]:
+    cats=['Withdrawal','Deposit','Airtime','BillPayment','WalletTransfer','Transfer','Levy','Commission','Reversal','Insurance','Other']
+    totals={c: float(df[f'{c}_Amount'].sum()) for c in cats}
+    st.bar_chart(pd.Series(totals, name='Amount'))
