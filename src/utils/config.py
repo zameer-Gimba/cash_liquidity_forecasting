@@ -50,7 +50,6 @@ MODEL_SUFFIX_WITHDRAWAL = "_withdrawal"
 MODEL_SUFFIX_DEP_CLF = "_deposit_classifier"
 MODEL_SUFFIX_DEP_REG = "_deposit_regressor"
 
-@dataclass(frozen=True)
 class ProjectConfig:
     target_column: str = TARGET_COLUMN
     date_column: str = DATE_COLUMN
