@@ -5,9 +5,9 @@ import sys
 import pandas as pd
 import streamlit as st
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-from src.utils.config import CANONICAL_DATASET_PATH, FEATURE_COLS
+if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
+from src.preprocessing.pipeline import process_dataset, validate_schema
+from src.utils.config import CANONICAL_DATASET_PATH, FEATURE_COLS, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT, TARGET_WITHDRAWAL
 from src.utils.dataset_detector import attempt_auto_repair, detect_dataset_type
 
 st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", layout="wide")
@@ -24,10 +24,6 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload bank statement or engineered CSV", type=['csv','xlsx'])
     if uploaded is not None:
         try:
-            # Lazy import keeps the app landing page available even if optional
-            # preprocessing dependencies fail; upload processing still reports a
-            # clear error in the sidebar.
-            from src.preprocessing.pipeline import process_dataset, validate_schema
             raw = pd.read_excel(uploaded) if uploaded.name.lower().endswith(('xlsx','xls')) else pd.read_csv(uploaded)
             kind = detect_dataset_type(raw); st.session_state['dataset_type'] = kind; st.info(f"Detected: {kind}")
             if kind == 'RAW_STATEMENT':
@@ -41,7 +37,7 @@ with st.sidebar:
             st.session_state.update(clean_dataset=clean, repair_log=log, dataset_validated=True, dataset_source='uploaded')
             st.success(f"Dataset successfully processed and validated. Rows: {len(clean)} | Features: {len(FEATURE_COLS)} | Targets: 3 | Status: ✓ READY")
         except Exception as exc:
-            st.session_state['dataset_validated'] = False; st.error(f"Upload processing failed: {exc}")
+            st.session_state['dataset_validated'] = False; st.error(str(exc))
     df = st.session_state['clean_dataset']
     st.download_button('Download Processed Dataset', df.to_csv(index=False).encode(), 'processed_liquidity_dataset.csv', 'text/csv')
 

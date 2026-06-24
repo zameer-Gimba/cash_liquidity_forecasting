@@ -1,27 +1,14 @@
 from __future__ import annotations
-from pathlib import Path
-import sys
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-import streamlit as st
+import joblib, streamlit as st
 from src.models.predict_deposit import predict_deposit
 from src.utils.config import FEATURE_COLS, MODEL_DIR, SAFETY_BUFFER_DEPOSIT, SAFETY_BUFFER_WITHDRAWAL
-
 st.title('Forecasting')
 df=st.session_state.get('clean_dataset')
-if df is None:
-    st.warning('Load a dataset from the main page.'); st.stop()
+if df is None: st.warning('Load a dataset from the main page.'); st.stop()
 st.info(f"Dataset loaded: {st.session_state.get('dataset_source','canonical')} | {st.session_state.get('dataset_type','FEATURE_ENGINEERED')}")
 features=df[FEATURE_COLS].tail(1)
 def load(name):
-    try:
-        import joblib
-        p=MODEL_DIR/name
-        return joblib.load(p) if p.exists() else None
-    except Exception as exc:
-        st.caption(f'Model loader unavailable for {name}: {exc}')
-        return None
+    p=MODEL_DIR/name; return joblib.load(p) if p.exists() else None
 model_name=st.selectbox('Withdrawal model', ['rf_withdrawal.pkl','xgb_withdrawal.pkl','lgbm_withdrawal.pkl','arima_withdrawal.pkl','sarima_withdrawal.pkl','lstm_withdrawal.keras'])
 try:
     m=load(model_name); pred=float(m.predict(features)[0]) if m and hasattr(m,'predict') else float(df['Withdrawal_Amount'].tail(30).mean())
