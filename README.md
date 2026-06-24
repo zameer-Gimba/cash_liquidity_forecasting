@@ -18,7 +18,7 @@ The expected raw transaction dataset spans approximately December 2021 through 2
 - `Credit`
 - `Balance`
 
-The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Withdrawal_Tomorrow`, defined as the next day's withdrawal demand.
+The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Next_Day_Withdrawal_Amount`, defined as the next day's withdrawal demand.
 
 ## Repository Structure
 
@@ -63,11 +63,11 @@ Implemented features include:
 - `IsWeekend`
 - `Withdrawal_Count`
 - `Deposit_Count`
-- `Rolling_7_Day_Average`
-- `Rolling_30_Day_Average`
-- `Lag_1_Day`, `Lag_7_Day`, `Lag_30_Day`
+- `Rolling_7_Day_Withdrawal_Amount`
+- `Rolling_30_Day_Withdrawal_Amount`
+- `Lag_1_Withdrawal_Amount`, `Lag_7_Withdrawal_Amount`, `Lag_30_Withdrawal_Amount`
 - `Net_Flow`
-- `Cash_Flow_Ratio`
+- `Credit_Debit_Ratio`
 - `Transaction_Intensity`
 - `Liquidity_Risk` labels from withdrawal-demand percentiles
 
@@ -80,14 +80,14 @@ pip install -r requirements.txt
 # For optional advanced ML libraries (XGBoost, LightGBM, TensorFlow, statsmodels):
 pip install -r requirements-ml.txt
 
-python -m src.preprocessing.pipeline data/raw_transactions.csv --output-path data/feature_engineered_dataset/features.csv
-python -m src.models.train_random_forest data/feature_engineered_dataset/features.csv
-python -m src.models.train_xgboost data/feature_engineered_dataset/features.csv
-python -m src.models.train_lightgbm data/feature_engineered_dataset/features.csv
-python -m src.models.train_arima data/feature_engineered_dataset/features.csv
-python -m src.models.train_sarima data/feature_engineered_dataset/features.csv
-python -m src.models.train_lstm data/feature_engineered_dataset/features.csv
-python -m src.models.train_risk_classifiers data/feature_engineered_dataset/features.csv
+python -m src.preprocessing.pipeline data/raw_transactions.csv --output-path data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_random_forest data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_xgboost data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_lightgbm data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_arima data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_sarima data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_lstm data/feature_engineered_dataset/liquidity_dataset.csv
+python -m src.models.train_risk_classifiers data/feature_engineered_dataset/liquidity_dataset.csv
 python -m src.models.evaluate_models
 ```
 
@@ -133,7 +133,7 @@ Pages:
 - Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
 - Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
 
-Forecasting uses `data/feature_engineered_dataset/features.csv` by default, but the page also allows users to upload a feature-engineered CSV at runtime. Supported model choices are Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM, LSTM fallback MLP, Best Available, and Historical Baseline.
+Forecasting uses `data/feature_engineered_dataset/liquidity_dataset.csv` by default, but the page also allows users to upload a feature-engineered CSV at runtime. Supported model choices are Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM, LSTM fallback MLP, Best Available, and Historical Baseline.
 
 streamlit run streamlit_app/app.py
 ```
