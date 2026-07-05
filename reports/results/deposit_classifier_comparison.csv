@@ -1,4 +1,4 @@
 Model,Accuracy,Precision,Recall,F1,ROC_AUC
-RF Classifier,1.0,0.0,0.0,0.0,
-XGB Classifier,1.0,0.0,0.0,0.0,
-LGBM Classifier,1.0,0.0,0.0,0.0,
+rf,1.0,0.0,0.0,0.0,
+xgb,1.0,0.0,0.0,0.0,
+lgbm,1.0,0.0,0.0,0.0,
