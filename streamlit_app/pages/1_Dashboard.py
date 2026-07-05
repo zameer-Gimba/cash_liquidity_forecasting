@@ -1,27 +1,24 @@
 from __future__ import annotations
-import joblib, pandas as pd, streamlit as st
-from pathlib import Path
-from src.models.predict_deposit import predict_deposit
-from src.utils.config import FEATURE_COLS, MODEL_DIR, SAFETY_BUFFER_DEPOSIT, SAFETY_BUFFER_WITHDRAWAL
+import streamlit as st
+
 st.title('Dashboard')
 df = st.session_state.get('clean_dataset')
-if df is None: st.warning('Load a dataset from the main page.'); st.stop()
-features = df[FEATURE_COLS].tail(1)
-def _baseline(col): return float(df[col].tail(30).mean())
-def _load(name):
-    p=MODEL_DIR/name
-    return joblib.load(p) if p.exists() else None
-try:
-    rf=_load('rf_withdrawal.pkl'); pred_w=float(rf.predict(features)[0]) if rf else _baseline('Withdrawal_Amount')
-except Exception as exc:
-    st.warning(f'Withdrawal model incompatible; using historical baseline. {exc}'); pred_w=_baseline('Withdrawal_Amount')
-try:
-    clf=_load('rf_deposit_classifier.pkl'); reg=_load('rf_deposit_regressor.pkl')
-    pred_d=predict_deposit(features, clf, reg) if clf and reg else 0.0
-except Exception as exc:
-    st.warning(f'Deposit models unavailable/incompatible; using baseline. {exc}')
-    _recent_deposits = df.loc[df['Deposit_Amount']>0,'Deposit_Amount'].tail(30)
-    pred_d = float(_recent_deposits.mean()) if not _recent_deposits.empty else 0.0
-q33,q66=df['Withdrawal_Amount'].quantile([.33,.66]); risk='LOW' if pred_w < q33 else 'MEDIUM' if pred_w <= q66 else 'HIGH'
-c=st.columns(4); c[0].metric('Predicted Withdrawal Demand (Next Day)', f'₦{pred_w:,.0f}'); c[1].metric('Recommended Cash Reserve', f'₦{pred_w*(1+SAFETY_BUFFER_WITHDRAWAL):,.0f}'); c[2].metric('Liquidity Risk', risk); c[3].metric('Recommended Float Top-Up', f'₦{pred_d*(1+SAFETY_BUFFER_DEPOSIT):,.0f}' if pred_d else 'No deposit expected tomorrow')
-st.line_chart(df.set_index('TransactionDate')[['Withdrawal_Amount','Deposit_Amount']])
+if df is None:
+    st.warning('Load a dataset from the main page.'); st.stop()
+
+pred = st.session_state.get('current_prediction')
+if pred is None:
+    st.info(
+        'No prediction yet. Go to the **Forecasting** page, pick a date and a model, '
+        'click **Train Model**, then **Generate Prediction**. The result will appear here '
+        'until you clear it.'
+    )
+else:
+    st.caption(f"Prediction for {pred['date']} using {pred['model_label']} (from the Forecasting page)")
+    c = st.columns(5)
+    c[0].metric('Predicted Withdrawal Demand', f"₦{pred['predicted_withdrawal']:,.0f}")
+    c[1].metric('Recommended Cash Reserve', f"₦{pred['recommended_reserve']:,.0f}")
+    c[2].metric('Liquidity Risk', pred['risk_level'])
+    c[3].metric('Predicted Deposit', f"₦{pred['predicted_deposit']:,.0f}" if pred['predicted_deposit'] else 'No deposit expected')
+    c[4].metric('Recommended Float Top-Up', f"₦{pred['recommended_float_topup']:,.0f}" if pred['predicted_deposit'] else '₦0')
+    st.line_chart(df.set_index('TransactionDate')[['Withdrawal_Amount', 'Deposit_Amount']])
