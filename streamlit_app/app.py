@@ -55,7 +55,8 @@ with st.sidebar:
 _df = st.session_state['clean_dataset']
 last30 = _df.tail(30)
 pred_w = float(last30['Withdrawal_Amount'].mean())
-pred_d = float(last30.loc[last30['Deposit_Amount'] > 0, 'Deposit_Amount'].mean() or 0.0)
+_recent_deposits = last30.loc[last30['Deposit_Amount'] > 0, 'Deposit_Amount']
+pred_d = float(_recent_deposits.mean()) if not _recent_deposits.empty else 0.0
 st.session_state.setdefault('model_prediction', pred_w)
 cols = st.columns(4)
 cols[0].metric('Predicted Withdrawal Demand (Next Day)', f'₦{pred_w:,.0f}')

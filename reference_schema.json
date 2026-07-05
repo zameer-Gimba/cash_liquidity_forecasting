@@ -107,7 +107,7 @@
     "Target_Has_Deposit_Tomorrow"
   ],
   "column_dtypes": {
-    "TransactionDate": "object",
+    "TransactionDate": "str",
     "Total_Debit": "float64",
     "Total_Credit": "float64",
     "Transaction_Count": "int64",
