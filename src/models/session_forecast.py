@@ -45,6 +45,9 @@ def build_future_feature_row(df: pd.DataFrame, target_date: pd.Timestamp) -> pd.
 def train_withdrawal_model(model_key: str, df: pd.DataFrame) -> tuple[Any, dict]:
     """Fit model_key on the full current dataset. Returns (model, extra_artifacts)."""
     ordered = df.sort_values(DATE_COL).reset_index(drop=True)
+    # clean_dataset stores TransactionDate as a plain string; asfreq('D') below silently produces an
+    # all-NaN series (and a degenerate ARIMA/SARIMA fit) unless the index is a real DatetimeIndex.
+    ordered[DATE_COL] = pd.to_datetime(ordered[DATE_COL])
     X, y = ordered[FEATURE_COLS], ordered[TARGET_WITHDRAWAL]
 
     if model_key == "rf":
@@ -67,6 +70,9 @@ def train_withdrawal_model(model_key: str, df: pd.DataFrame) -> tuple[Any, dict]
 
     if model_key in ("arima", "sarima"):
         series = ordered.set_index(DATE_COL)[TARGET_WITHDRAWAL].asfreq("D").ffill()
+        # The series is Withdrawal_Amount shifted one day ahead, so its last point reflects the day
+        # *after* the dataset's cutoff - drop it so the fit isn't anchored to an excluded value.
+        series = series.iloc[:-1]
         if model_key == "arima":
             from statsmodels.tsa.arima.model import ARIMA
             model = ARIMA(series, order=(1, 1, 1)).fit()

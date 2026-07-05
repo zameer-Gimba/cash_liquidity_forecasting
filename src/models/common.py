@@ -6,13 +6,16 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, r2_score, recall_score, roc_auc_score
-from src.utils.config import CANONICAL_DATASET_PATH, DATE_COL, FEATURE_COLS, MODEL_DIR, RANDOM_STATE, ROOT_DIR, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT, TARGET_WITHDRAWAL, TRAIN_SPLIT, VAL_SPLIT
+from src.utils.config import CANONICAL_DATASET_PATH, CANONICAL_TRAINING_END_DATE, DATE_COL, FEATURE_COLS, MODEL_DIR, RANDOM_STATE, ROOT_DIR, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT, TARGET_WITHDRAWAL, TRAIN_SPLIT, VAL_SPLIT
 
 def load_canonical_data(path: str | Path | None = None) -> pd.DataFrame:
     p = ROOT_DIR / (path or CANONICAL_DATASET_PATH)
     df = pd.read_csv(p, parse_dates=[DATE_COL]).sort_values(DATE_COL).reset_index(drop=True)
     missing = [c for c in [DATE_COL, *FEATURE_COLS, TARGET_WITHDRAWAL, TARGET_DEPOSIT, TARGET_HAS_DEPOSIT] if c not in df.columns]
     if missing: raise KeyError(f"Missing canonical columns: {missing}")
+    if path is None:
+        # Exclude the canonical file's incomplete trailing window (see config.py) from training/evaluation.
+        df = df[df[DATE_COL] <= CANONICAL_TRAINING_END_DATE].reset_index(drop=True)
     return df
 
 def chronological_split(df: pd.DataFrame):
