@@ -22,7 +22,7 @@ def test_schema_validation():
     df=pd.read_csv(ROOT/'data/feature_engineered_dataset/liquidity_dataset.csv')
     assert list(df.columns) == schema['required_columns']
     assert df.shape == tuple(schema['canonical_shape'])
-    assert len(schema['feature_columns']) == 47
+    assert len(schema['feature_columns']) == 46  # 50 columns minus TransactionDate minus 3 targets
     assert len(schema['target_columns']) == 3
 
 class _ZeroClassifier:

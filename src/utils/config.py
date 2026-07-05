@@ -11,7 +11,9 @@ MODEL_DIR             = ROOT_DIR / "models" / "saved_models"
 REPORTS_DIR           = ROOT_DIR / "reports" / "results"
 SCHEMA_PATH           = ROOT_DIR / "reference_schema.json"
 CANONICAL_DATASET_PATH = DATA_DIR / "liquidity_dataset.csv"
-DEPRECATED_DATASET_PATH = DATA_DIR / "features_DEPRECATED.csv"
+
+# ── Reproducibility ──────────────────────────────────────────────────────────
+RANDOM_STATE = 42
 
 # ── Column names ─────────────────────────────────────────────────────────────
 DATE_COL           = "TransactionDate"
