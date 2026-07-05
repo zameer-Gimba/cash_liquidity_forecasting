@@ -21,10 +21,12 @@ def main() -> list[dict]:
     try:
         import tensorflow as tf
         scaler = StandardScaler().fit(Xtr); xs, ys = _seq(scaler.transform(Xtr), ytr.to_numpy()); xst, yst = _seq(scaler.transform(Xte), yte.to_numpy())
+        y_scale = float(ys.mean()) or 1.0
         lstm = tf.keras.Sequential([tf.keras.layers.Input((LSTM_SEQUENCE_LENGTH, len(FEATURE_COLS))), tf.keras.layers.LSTM(16), tf.keras.layers.Dense(1)])
-        lstm.compile(optimizer='adam', loss='mse'); lstm.fit(xs, ys, epochs=2, batch_size=32, verbose=0)
-        MODEL_DIR.mkdir(parents=True, exist_ok=True); lstm.save(MODEL_DIR/'lstm_deposit_regressor.keras'); joblib.dump(scaler, MODEL_DIR/'lstm_deposit_regressor_scaler.pkl')
-        if len(xst): rows.append({'Model': 'lstm', **regression_metrics(yst, lstm.predict(xst, verbose=0).ravel())})
+        lstm.compile(optimizer='adam', loss='mse'); lstm.fit(xs, ys / y_scale, epochs=40, batch_size=32, verbose=0)
+        MODEL_DIR.mkdir(parents=True, exist_ok=True); lstm.save(MODEL_DIR/'lstm_deposit_regressor.keras')
+        joblib.dump({'scaler': scaler, 'y_scale': y_scale}, MODEL_DIR/'lstm_deposit_regressor_scaler.pkl')
+        if len(xst): rows.append({'Model': 'lstm', **regression_metrics(yst, lstm.predict(xst, verbose=0).ravel() * y_scale)})
     except Exception as exc:
         rows.append({'Model': 'lstm', 'Error': str(exc)})
     return rows

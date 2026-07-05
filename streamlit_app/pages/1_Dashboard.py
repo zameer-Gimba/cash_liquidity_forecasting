@@ -19,7 +19,9 @@ try:
     clf=_load('rf_deposit_classifier.pkl'); reg=_load('rf_deposit_regressor.pkl')
     pred_d=predict_deposit(features, clf, reg) if clf and reg else 0.0
 except Exception as exc:
-    st.warning(f'Deposit models unavailable/incompatible; using baseline. {exc}'); pred_d=float(df.loc[df['Deposit_Amount']>0,'Deposit_Amount'].tail(30).mean() or 0.0)
+    st.warning(f'Deposit models unavailable/incompatible; using baseline. {exc}')
+    _recent_deposits = df.loc[df['Deposit_Amount']>0,'Deposit_Amount'].tail(30)
+    pred_d = float(_recent_deposits.mean()) if not _recent_deposits.empty else 0.0
 q33,q66=df['Withdrawal_Amount'].quantile([.33,.66]); risk='LOW' if pred_w < q33 else 'MEDIUM' if pred_w <= q66 else 'HIGH'
 c=st.columns(4); c[0].metric('Predicted Withdrawal Demand (Next Day)', f'₦{pred_w:,.0f}'); c[1].metric('Recommended Cash Reserve', f'₦{pred_w*(1+SAFETY_BUFFER_WITHDRAWAL):,.0f}'); c[2].metric('Liquidity Risk', risk); c[3].metric('Recommended Float Top-Up', f'₦{pred_d*(1+SAFETY_BUFFER_DEPOSIT):,.0f}' if pred_d else 'No deposit expected tomorrow')
 st.line_chart(df.set_index('TransactionDate')[['Withdrawal_Amount','Deposit_Amount']])

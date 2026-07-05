@@ -1,41 +1,40 @@
 # Predictive Liquidity Model for Agent Banking in Nigeria
 
-A production-oriented machine-learning project for forecasting next-day cash withdrawal demand for Nigerian POS agents and recommending cash reserves with a configurable safety buffer.
+A production-oriented machine-learning project for forecasting next-day cash withdrawal and deposit demand for Nigerian POS agents and recommending cash reserves and float top-ups with configurable safety buffers.
 
 ## Problem Statement
 
-POS agents frequently face liquidity mismatches: insufficient physical cash for withdrawals or insufficient electronic float for deposits and transfers. This project predicts next-day withdrawal demand and supports operational decisions that reduce failed transactions, customer dissatisfaction, and idle cash.
+POS agents frequently face liquidity mismatches: insufficient physical cash for withdrawals or insufficient electronic float for deposits and transfers. This project predicts next-day withdrawal demand and next-day deposit demand, and supports operational decisions that reduce failed transactions, customer dissatisfaction, and idle cash.
 
 ## Dataset
 
-The expected raw transaction dataset spans approximately December 2021 through 2026 and includes:
+The canonical, immutable dataset is `data/feature_engineered_dataset/liquidity_dataset.csv`: 1,513 rows × 50 columns spanning 16 December 2021 to 22 May 2026, with zero missing values. It is never overwritten by any pipeline step; it is the single source of truth for training.
 
-- `TransactionDate`
-- `TransactionTime`
-- `Narration`
-- `Reference`
-- `Debit`
-- `Credit`
-- `Balance`
+Raw Moniepoint POS agent bank statements (`.xlsx`/`.csv`) can also be uploaded through the Streamlit sidebar. Raw statements include:
 
-The model-ready feature dataset is stored under `data/feature_engineered_dataset/` and includes `Target_Next_Day_Withdrawal_Amount`, defined as the next day's withdrawal demand.
+- `TransactionDate`, `Narration`, `Reference`, `Debit`, `Credit`, `Balance`
+
+Uploads are auto-detected (`FEATURE_ENGINEERED`, `RAW_STATEMENT`, `PARTIALLY_ENGINEERED`, or `UNKNOWN`), cleaned, classified into 11 narration categories, feature-engineered, and validated against `reference_schema.json` — entirely in-memory (`st.session_state`), never written back to the canonical CSV. See `src/preprocessing/pipeline.py` and `src/utils/dataset_detector.py`.
+
+The dataset carries three targets: `Target_Next_Day_Withdrawal_Amount`, `Target_Next_Day_Deposit_Amount`, and `Target_Has_Deposit_Tomorrow` (binary).
 
 ## Repository Structure
 
 ```text
-agent-liquidity-prediction/
-├── data/feature_engineered_dataset/
+cash_liquidity_forecasting/
+├── data/feature_engineered_dataset/   # canonical liquidity_dataset.csv (immutable)
 ├── notebooks/
-├── src/preprocessing/
-├── src/models/
-├── src/visualization/
-├── src/utils/
+├── src/preprocessing/                 # pipeline.py, path_setup helpers
+├── src/models/                        # train_*.py, evaluate_models.py, predict_deposit.py
+├── src/utils/                         # config.py, dataset_detector.py, logger.py
 ├── streamlit_app/pages/
 ├── assets/
 ├── models/saved_models/
 ├── reports/{figures,tables,results}/
 ├── tests/
+├── reference_schema.json
 ├── requirements.txt
+├── requirements-ml.txt
 ├── runtime.txt
 ├── Procfile
 ├── Dockerfile
@@ -44,32 +43,28 @@ agent-liquidity-prediction/
 
 ## Methodology
 
-1. Clean raw POS transactions: missing values, duplicates, dates, numeric currency fields, and outlier reports.
-2. Aggregate data to daily liquidity observations.
-3. Engineer calendar, lag, rolling-window, cash-flow-ratio, and transaction-intensity features.
-4. Split chronologically into 70% training, 15% validation, and 15% testing.
-5. Tune tree models with `RandomizedSearchCV` and `TimeSeriesSplit(n_splits=5)`.
-6. Train and compare Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, and LSTM.
-7. Persist models, scalers, encoders, metrics, and comparison tables.
-8. Serve results through a Streamlit decision-support dashboard.
+1. Detect uploaded dataset type and auto-clean/classify/engineer raw POS statements when needed (missing values, duplicates, dates, numeric currency fields, reversal/retry handling).
+2. Aggregate transactions to daily liquidity observations across 11 narration categories (Withdrawal, Deposit, Airtime, BillPayment, WalletTransfer, Transfer, Levy, Commission, Reversal, Insurance, Other).
+3. Engineer calendar, category amount/count, behavioural, lag, and rolling-window features for both withdrawal and deposit series (46 features total).
+4. Split chronologically into 70% training, 15% validation, and 15% testing (`src/models/common.py:chronological_split`).
+5. Train and compare Random Forest, XGBoost, LightGBM, ARIMA, and SARIMA for withdrawal demand, plus an LSTM sequence model.
+6. Forecast deposits with a two-stage architecture: a classifier predicts whether a deposit occurs tomorrow (`Target_Has_Deposit_Tomorrow`), then a regressor trained only on deposit-active days predicts the amount (`Target_Next_Day_Deposit_Amount`). This avoids the zero-inflation problem of a direct regression on a target where ~64% of days have no deposit.
+7. Persist models and evaluation tables under `models/saved_models/` and `reports/results/`.
+8. Serve results through a Streamlit decision-support dashboard with graceful fallback to a historical baseline when an artifact is missing or incompatible.
 
 ## Feature Engineering
 
-Implemented features include:
+The canonical dataset provides 46 model input features (50 columns minus the `TransactionDate` index minus 3 targets), defined in `src/utils/config.py:FEATURE_COLS`:
 
-- `DayOfWeek` (one-hot encoded for tree-based models)
-- `Month`
-- `WeekOfMonth`
-- `IsWeekend`
-- `Withdrawal_Count`
-- `Deposit_Count`
-- `Rolling_7_Day_Withdrawal_Amount`
-- `Rolling_30_Day_Withdrawal_Amount`
-- `Lag_1_Withdrawal_Amount`, `Lag_7_Withdrawal_Amount`, `Lag_30_Withdrawal_Amount`
-- `Net_Flow`
-- `Credit_Debit_Ratio`
-- `Transaction_Intensity`
-- `Liquidity_Risk` labels from withdrawal-demand percentiles
+- Core daily: `Total_Debit`, `Total_Credit`, `Transaction_Count`, `Closing_Balance`, `Net_Flow`
+- Category amount + count pairs (11 categories): Withdrawal, Deposit, Airtime, BillPayment, WalletTransfer, Transfer, Levy, Commission, Reversal, Insurance, Other
+- Temporal: `DayOfWeek` (integer 0–6), `Month`, `WeekOfMonth`, `Quarter`, `IsWeekend`
+- Behavioural: `Average_Withdrawal_Size`, `Average_Deposit_Size`, `Credit_Debit_Ratio`
+- Withdrawal and deposit lags: `Lag_{1,7,30}_Withdrawal_Amount`, `Lag_{1,7,30}_Deposit_Amount`
+- Withdrawal and deposit rolling averages: `Rolling_{7,30}_Day_Withdrawal_Amount`, `Rolling_{7,30}_Day_Deposit_Amount`
+- `Has_Deposit` — current-day deposit flag, the strongest signal for next-day deposit classification
+
+`Liquidity_Risk` (Low/Medium/High) is a UI-only label derived from withdrawal-demand percentiles at display time; it is not a model input or a trained target.
 
 ## Training
 
@@ -77,37 +72,39 @@ Implemented features include:
 # For app/test dependencies:
 pip install -r requirements.txt
 
-# For optional advanced ML libraries (XGBoost, LightGBM, TensorFlow, statsmodels):
+# For advanced ML libraries (XGBoost, LightGBM, TensorFlow, statsmodels):
 pip install -r requirements-ml.txt
 
-python -m src.preprocessing.pipeline data/raw_transactions.csv --output-path data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_random_forest data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_xgboost data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_lightgbm data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_arima data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_sarima data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_lstm data/feature_engineered_dataset/liquidity_dataset.csv
-python -m src.models.train_risk_classifiers data/feature_engineered_dataset/liquidity_dataset.csv
+python scripts/generate_schema.py            # regenerate reference_schema.json from the canonical CSV
+python -m src.models.train_random_forest
+python -m src.models.train_xgboost
+python -m src.models.train_lightgbm
+python -m src.models.train_arima
+python -m src.models.train_sarima
+python -m src.models.train_lstm
+python -m src.models.train_deposit_classifier
+python -m src.models.train_deposit_regressor
 python -m src.models.evaluate_models
 ```
 
+All training scripts read directly from the immutable canonical dataset (`src/utils/config.py:CANONICAL_DATASET_PATH`) — there is no separate feature-generation CLI step for the canonical CSV. Raw statement processing only happens transiently through the Streamlit upload flow.
+
 ## Evaluation
 
-Regression metrics are saved in `reports/results/`:
+Regression and classification metrics are written to `reports/results/`:
 
-| Model | MAE | RMSE | MAPE | R² |
-| --- | ---: | ---: | ---: | ---: |
-| Generated after training | - | - | - | - |
-
-Classification models for liquidity risk report accuracy and weighted F1.
+- `withdrawal_model_comparison.csv` — MAE, RMSE, MAPE, R² for Random Forest, XGBoost, LightGBM
+- `deposit_classifier_comparison.csv` — Accuracy, Precision, Recall, F1, ROC AUC for the Stage 1 classifiers
+- `deposit_regressor_comparison.csv` — MAE, RMSE, MAPE, R² for the Stage 2 regressors (deposit-active days only)
 
 ## Liquidity Recommendation Engine
 
 ```text
-Recommended_Cash_Reserve = Predicted_Withdrawal_Demand × (1 + Safety_Buffer)
+Recommended_Cash_Reserve = Predicted_Withdrawal_Demand × (1 + Safety_Buffer_Withdrawal)
+Recommended_Float_Top_Up = Predicted_Deposit_Demand × (1 + Safety_Buffer_Deposit)
 ```
 
-The default safety buffer is 15% and can be configured in `src/utils/config.py` or the Streamlit Forecasting page.
+The default safety buffers are 15% (withdrawal) and 10% (deposit), configurable in `src/utils/config.py`.
 
 ## Streamlit Dashboard
 
@@ -128,23 +125,12 @@ pip install -r requirements-ml.txt
 
 Pages:
 
-- Dashboard: current date, predicted tomorrow demand, recommended reserve, risk level, model used, confidence score.
-- Forecasting: select a future date and model, generate a date-aware prediction from saved artifacts, and fall back to a historical baseline instead of crashing when an artifact is missing or incompatible.
-- Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
-- Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
+- **Dashboard**: predicted next-day withdrawal demand, recommended cash reserve, liquidity risk level, predicted next-day deposit demand, and recommended float top-up, plus a withdrawal/deposit history chart.
+- **Forecasting**: pick a withdrawal model (Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, or LSTM), see its prediction and recommended reserve, and a two-stage deposit forecast (classifier + regressor) below it. Falls back to a historical (last-30-day average) baseline when an artifact is missing or incompatible.
+- **Analytics**: withdrawal trends and day-of-week seasonality, deposit trends and rolling averages, and a category breakdown (Airtime, BillPayment, WalletTransfer, Transfer, Levy, Commission, Reversal, Insurance, Other).
+- **Model Comparison**: withdrawal model metrics table and a two-stage deposit comparison (Stage 1 classifier metrics, Stage 2 regressor metrics), read from `reports/results/`.
 
-Forecasting uses `data/feature_engineered_dataset/liquidity_dataset.csv` by default, but the page also allows users to upload a feature-engineered CSV at runtime. Supported model choices are Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM, LSTM fallback MLP, Best Available, and Historical Baseline.
-
-streamlit run streamlit_app/app.py
-```
-
-Pages:
-
-- Dashboard: current date, predicted tomorrow demand, recommended reserve, risk level, model used, confidence score.
-- Forecasting: select a future date, generate prediction, and display reserve plus safety buffer.
-- Analytics: historical withdrawals, deposits, monthly trends, transaction trends, seasonality, and rolling averages.
-- Model Comparison: metrics table, ranking, visual comparisons, and feature importance placeholder support.
-
+The dataset loaded in the sidebar (canonical or uploaded) is shared across all pages via `st.session_state['clean_dataset']`.
 
 ## Publishing to GitHub
 
