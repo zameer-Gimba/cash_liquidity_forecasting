@@ -12,6 +12,16 @@ REPORTS_DIR           = ROOT_DIR / "reports" / "results"
 SCHEMA_PATH           = ROOT_DIR / "reference_schema.json"
 CANONICAL_DATASET_PATH = DATA_DIR / "liquidity_dataset.csv"
 
+# The canonical CSV's continuous daily record ends here: historical median is
+# ~147 transactions/day, but from 2026-01-17 onward (26 rows) counts crash to
+# single digits, exact-zero withdrawal days appear, then multi-week gaps
+# (14-day, then 46-day) before the file ends 2026-04-14. That tail behaves
+# like an incomplete data-collection window, not real zero-business days, so
+# it is excluded when training/evaluating models and when anchoring
+# date-aware predictions on "latest known" feature values. The CSV itself is
+# never modified - this is an in-memory cutoff applied at load time.
+CANONICAL_TRAINING_END_DATE = "2026-01-16"
+
 # ── Reproducibility ──────────────────────────────────────────────────────────
 RANDOM_STATE = 42
 

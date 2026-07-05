@@ -14,7 +14,7 @@ import streamlit as st
 
 # 3. Local repository imports
 from src.preprocessing.pipeline import process_dataset, validate_schema
-from src.utils.config import CANONICAL_DATASET_PATH, FEATURE_COLS
+from src.utils.config import CANONICAL_DATASET_PATH, CANONICAL_TRAINING_END_DATE, FEATURE_COLS
 from src.utils.dataset_detector import attempt_auto_repair, detect_dataset_type
 
 st.set_page_config(page_title="Agent Liquidity Prediction", page_icon="💧", layout="wide")
@@ -26,10 +26,18 @@ for k, v in {
 }.items():
     st.session_state.setdefault(k, v)
 
-if st.session_state['clean_dataset'] is None:
+
+def _load_canonical() -> pd.DataFrame:
     # FIX: CANONICAL_DATASET_PATH is already an absolute path from config.py
     df = pd.read_csv(CANONICAL_DATASET_PATH)
-    st.session_state.update(clean_dataset=df, dataset_type='FEATURE_ENGINEERED', dataset_validated=True, dataset_source='canonical')
+    # The canonical file's trailing window (from 2026-01-17) is a sparse, gapped data-collection
+    # artifact rather than real zero-business days (see config.CANONICAL_TRAINING_END_DATE) - excluded
+    # here so models and date-aware predictions aren't anchored to it. The CSV on disk is untouched.
+    return df[df['TransactionDate'] <= CANONICAL_TRAINING_END_DATE].reset_index(drop=True)
+
+
+if st.session_state['clean_dataset'] is None:
+    st.session_state.update(clean_dataset=_load_canonical(), dataset_type='FEATURE_ENGINEERED', dataset_validated=True, dataset_source='canonical')
 
 st.title("Predictive Liquidity Model for Agent Banking in Nigeria")
 st.caption("Decision support for POS cash reserve and float planning")
@@ -42,7 +50,8 @@ with st.sidebar:
             raw = pd.read_excel(uploaded) if uploaded.name.lower().endswith(('xlsx', 'xls')) else pd.read_csv(uploaded)
             kind = detect_dataset_type(raw)
             st.info(f"Detected: {kind}")
-            if st.button('Save dataset'):
+            save_col, clear_col = st.columns(2)
+            if save_col.button('Save dataset', width='stretch'):
                 if kind == 'RAW_STATEMENT':
                     st.write('Raw transaction statement detected. Preparing dataset...')
                     clean = process_dataset(raw); log = []
@@ -58,8 +67,22 @@ with st.sidebar:
                     trained_model=None, trained_model_key=None, trained_model_extra=None, trained_model_rows=None, current_prediction=None,
                 )
                 st.success(f"Dataset successfully processed and validated. Rows: {len(clean)} | Features: {len(FEATURE_COLS)} | Targets: 3 | Status: ✓ READY")
+            if clear_col.button('Clear dataset', width='stretch', disabled=st.session_state['dataset_source'] != 'uploaded'):
+                st.session_state.update(
+                    clean_dataset=_load_canonical(), dataset_type='FEATURE_ENGINEERED', dataset_validated=True, dataset_source='canonical',
+                    trained_model=None, trained_model_key=None, trained_model_extra=None, trained_model_rows=None, current_prediction=None,
+                )
+                st.success('Cleared. Reverted to the canonical dataset.')
         except Exception as exc:
             st.error(str(exc))
+    elif st.session_state['dataset_source'] == 'uploaded':
+        # No file currently selected in the uploader, but a previously saved upload is still active.
+        if st.button('Clear dataset', width='stretch'):
+            st.session_state.update(
+                clean_dataset=_load_canonical(), dataset_type='FEATURE_ENGINEERED', dataset_validated=True, dataset_source='canonical',
+                trained_model=None, trained_model_key=None, trained_model_extra=None, trained_model_rows=None, current_prediction=None,
+            )
+            st.success('Cleared. Reverted to the canonical dataset.')
     st.caption(f"Active dataset: {st.session_state['dataset_source']} ({len(st.session_state['clean_dataset'])} rows)")
     df = st.session_state['clean_dataset']
     st.download_button('Download Processed Dataset', df.to_csv(index=False).encode(), 'processed_liquidity_dataset.csv', 'text/csv')
