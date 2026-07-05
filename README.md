@@ -69,11 +69,7 @@ The canonical dataset provides 46 model input features (50 columns minus the `Tr
 ## Training
 
 ```bash
-# For app/test dependencies:
 pip install -r requirements.txt
-
-# For advanced ML libraries (XGBoost, LightGBM, TensorFlow, statsmodels):
-pip install -r requirements-ml.txt
 
 python scripts/generate_schema.py            # regenerate reference_schema.json from the canonical CSV
 python -m src.models.train_random_forest
@@ -93,7 +89,7 @@ All training scripts read directly from the immutable canonical dataset (`src/ut
 
 Regression and classification metrics are written to `reports/results/`:
 
-- `withdrawal_model_comparison.csv` — MAE, RMSE, MAPE, R² for Random Forest, XGBoost, LightGBM
+- `withdrawal_model_comparison.csv` — MAE, RMSE, MAPE, R² for all 6 withdrawal models (Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM)
 - `deposit_classifier_comparison.csv` — Accuracy, Precision, Recall, F1, ROC AUC for the Stage 1 classifiers
 - `deposit_regressor_comparison.csv` — MAE, RMSE, MAPE, R² for the Stage 2 regressors (deposit-active days only)
 
@@ -117,11 +113,7 @@ streamlit run streamlit_app/app.py --server.address=0.0.0.0 --server.port=8501
 
 When using GitHub Codespaces or GitHub.dev, open the forwarded port preview URL for port `8501` rather than the repository root.
 
-The default `requirements.txt` intentionally excludes TensorFlow and other heavyweight optional training libraries so Streamlit Community Cloud can deploy successfully on newer Python runtimes. Use `requirements-ml.txt` only for local/full training environments.
-
-```bash
-pip install -r requirements-ml.txt
-```
+`requirements.txt` includes XGBoost, LightGBM, statsmodels, and TensorFlow alongside the core Streamlit/pandas stack, since the Forecasting page trains any of the 6 withdrawal models live, on demand, in the running app — not just offline. `requirements-ml.txt` is kept as an alias to the same file for local/offline training environments that reference it by name.
 
 Pages:
 
