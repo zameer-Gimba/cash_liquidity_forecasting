@@ -21,7 +21,7 @@ TARGET_WITHDRAWAL  = "Target_Next_Day_Withdrawal_Amount"
 TARGET_DEPOSIT     = "Target_Next_Day_Deposit_Amount"
 TARGET_HAS_DEPOSIT = "Target_Has_Deposit_Tomorrow"
 
-# ── Feature columns (47) — exact order matches liquidity_dataset.csv ─────────
+# ── Feature columns (46) — exact order matches liquidity_dataset.csv ─────────
 FEATURE_COLS = [
     "Total_Debit", "Total_Credit", "Transaction_Count", "Closing_Balance",
     "Net_Flow", "Withdrawal_Amount", "Withdrawal_Count", "Deposit_Amount",

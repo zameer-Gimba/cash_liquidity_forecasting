@@ -1,47 +1,90 @@
 from __future__ import annotations
-import joblib, numpy as np, streamlit as st
+import datetime as dt
+
+import joblib
+import streamlit as st
+
 from src.models.predict_deposit import predict_deposit
-from src.utils.config import FEATURE_COLS, LSTM_SEQUENCE_LENGTH, MODEL_DIR, SAFETY_BUFFER_DEPOSIT, SAFETY_BUFFER_WITHDRAWAL
+from src.models.session_forecast import MODEL_OPTIONS, build_future_feature_row, predict_withdrawal_for_date, train_withdrawal_model
+from src.utils.config import MODEL_DIR, SAFETY_BUFFER_DEPOSIT, SAFETY_BUFFER_WITHDRAWAL
+
 st.title('Forecasting')
-df=st.session_state.get('clean_dataset')
-if df is None: st.warning('Load a dataset from the main page.'); st.stop()
-st.info(f"Dataset loaded: {st.session_state.get('dataset_source','canonical')} | {st.session_state.get('dataset_type','FEATURE_ENGINEERED')}")
-features=df[FEATURE_COLS].tail(1)
-def load(name):
-    p=MODEL_DIR/name; return joblib.load(p) if p.exists() else None
+df = st.session_state.get('clean_dataset')
+if df is None:
+    st.warning('Load a dataset from the main page.'); st.stop()
+st.info(f"Dataset loaded: {st.session_state.get('dataset_source', 'canonical')} | {st.session_state.get('dataset_type', 'FEATURE_ENGINEERED')}")
 
-def predict_withdrawal(model_name: str) -> float:
-    p = MODEL_DIR / model_name
-    if not p.exists():
-        raise FileNotFoundError(f'Missing artefact: {model_name}')
-    if model_name.endswith('.keras'):
-        from tensorflow import keras
-        scaler_art = joblib.load(MODEL_DIR / 'lstm_withdrawal_scaler.pkl')
-        scaler, y_scale = scaler_art['scaler'], scaler_art['y_scale']
-        seq = df[FEATURE_COLS].tail(LSTM_SEQUENCE_LENGTH)
-        if len(seq) < LSTM_SEQUENCE_LENGTH:
-            raise ValueError('Not enough history for the LSTM sequence window.')
-        X = scaler.transform(seq.values)[None, :, :]
-        model = keras.models.load_model(str(p))
-        return float(model.predict(X, verbose=0).ravel()[0]) * y_scale
-    model = joblib.load(p)
-    if model_name in {'arima_withdrawal.pkl', 'sarima_withdrawal.pkl'}:
-        if hasattr(model, 'get_forecast'):
-            return float(np.asarray(model.get_forecast(steps=1).predicted_mean).ravel()[0])
-        return float(np.asarray(model.forecast(steps=1)).ravel()[0])
-    return float(model.predict(features)[0])
+tomorrow = dt.date.today() + dt.timedelta(days=1)
+col1, col2 = st.columns(2)
+target_date = col1.date_input('Prediction date', min_value=tomorrow, max_value=tomorrow + dt.timedelta(days=365), value=tomorrow)
+model_label = col2.selectbox('Model', list(MODEL_OPTIONS.keys()))
+model_key = MODEL_OPTIONS[model_label]
 
-model_name=st.selectbox('Withdrawal model', ['rf_withdrawal.pkl','xgb_withdrawal.pkl','lgbm_withdrawal.pkl','arima_withdrawal.pkl','sarima_withdrawal.pkl','lstm_withdrawal.keras'])
-try:
-    pred=predict_withdrawal(model_name)
-except Exception as exc:
-    st.warning(f'Model schema mismatch or missing; using last-30-day baseline. {exc}'); pred=float(df['Withdrawal_Amount'].tail(30).mean())
-st.metric('Predicted Withdrawal Demand (Next Day)', f'₦{pred:,.0f}'); st.metric('Recommended Cash Reserve', f'₦{pred*(1+SAFETY_BUFFER_WITHDRAWAL):,.0f}')
-st.subheader('Deposit Forecast')
-try:
-    clf=load('rf_deposit_classifier.pkl'); reg=load('rf_deposit_regressor.pkl'); dep=predict_deposit(features, clf, reg) if clf and reg else 0.0
-except Exception as exc:
-    st.warning(f'Deposit model fallback to baseline. {exc}')
-    _recent_deposits = df.loc[df['Deposit_Amount']>0,'Deposit_Amount'].tail(30)
-    dep = float(_recent_deposits.mean()) if not _recent_deposits.empty else 0.0
-st.metric('Predicted Deposit', f'₦{dep:,.0f}' if dep else 'No deposit expected tomorrow'); st.metric('Recommended Float Top-Up', f'₦{dep*(1+SAFETY_BUFFER_DEPOSIT):,.0f}')
+b_train, b_predict, b_clear = st.columns(3)
+train_clicked = b_train.button('Train Model', width='stretch')
+predict_clicked = b_predict.button('Generate Prediction', width='stretch')
+clear_clicked = b_clear.button('Clear Trained Model', width='stretch')
+
+if train_clicked:
+    with st.spinner(f'Training {model_label} on {len(df)} rows...'):
+        try:
+            model, extra = train_withdrawal_model(model_key, df)
+            st.session_state.update(trained_model=model, trained_model_key=model_key, trained_model_extra=extra, trained_model_rows=len(df))
+            st.success(f'{model_label} trained on {len(df)} rows and is now active for this session.')
+        except Exception as exc:
+            st.error(f'Training failed: {exc}')
+
+if clear_clicked:
+    st.session_state.update(trained_model=None, trained_model_key=None, trained_model_extra=None, trained_model_rows=None, current_prediction=None)
+    st.success('Trained model and prediction cleared.')
+
+active_key = st.session_state.get('trained_model_key')
+if active_key:
+    active_label = next(label for label, key in MODEL_OPTIONS.items() if key == active_key)
+    st.caption(f'Active model: {active_label} (trained on {st.session_state["trained_model_rows"]} rows) — persists across pages until cleared.')
+else:
+    st.caption('No model trained yet. Select a model above and click Train Model.')
+
+if predict_clicked:
+    if st.session_state.get('trained_model') is None:
+        st.warning('Train a model first, then generate a prediction.')
+    else:
+        try:
+            active_key = st.session_state['trained_model_key']
+            active_label = next(label for label, key in MODEL_OPTIONS.items() if key == active_key)
+            pred_w = predict_withdrawal_for_date(active_key, st.session_state['trained_model'], st.session_state['trained_model_extra'], df, target_date)
+
+            future_row = build_future_feature_row(df, target_date)
+            try:
+                clf = joblib.load(MODEL_DIR / 'rf_deposit_classifier.pkl')
+                reg = joblib.load(MODEL_DIR / 'rf_deposit_regressor.pkl')
+                pred_d = predict_deposit(future_row, clf, reg)
+            except Exception:
+                pred_d = 0.0
+
+            q33, q66 = df['Withdrawal_Amount'].quantile([.33, .66])
+            risk_level = 'LOW' if pred_w < q33 else 'MEDIUM' if pred_w <= q66 else 'HIGH'
+
+            st.session_state['current_prediction'] = {
+                'date': target_date,
+                'model_label': active_label,
+                'predicted_withdrawal': pred_w,
+                'recommended_reserve': pred_w * (1 + SAFETY_BUFFER_WITHDRAWAL),
+                'risk_level': risk_level,
+                'predicted_deposit': pred_d,
+                'recommended_float_topup': pred_d * (1 + SAFETY_BUFFER_DEPOSIT) if pred_d else 0.0,
+            }
+        except Exception as exc:
+            st.error(f'Prediction failed: {exc}')
+
+pred = st.session_state.get('current_prediction')
+if pred:
+    st.subheader(f"Prediction for {pred['date']} — {pred['model_label']}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric('Predicted Withdrawal Demand', f"₦{pred['predicted_withdrawal']:,.0f}")
+    c2.metric('Recommended Cash Reserve', f"₦{pred['recommended_reserve']:,.0f}")
+    c3.metric('Liquidity Risk', pred['risk_level'])
+    st.subheader('Deposit Forecast')
+    c3, c4 = st.columns(2)
+    c3.metric('Predicted Deposit', f"₦{pred['predicted_deposit']:,.0f}" if pred['predicted_deposit'] else 'No deposit expected')
+    c4.metric('Recommended Float Top-Up', f"₦{pred['recommended_float_topup']:,.0f}" if pred['predicted_deposit'] else '₦0')
