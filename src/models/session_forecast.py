@@ -112,3 +112,18 @@ def predict_withdrawal_for_date(model_key: str, model: Any, extra: dict, df: pd.
 
     row = build_future_feature_row(df, target_date)
     return float(model.predict(row[FEATURE_COLS])[0])
+
+
+def forecast_path(model_key: str, model: Any, extra: dict, df: pd.DataFrame, dates: list[pd.Timestamp]) -> pd.Series:
+    """Withdrawal forecasts for several future dates at once (not available for the LSTM)."""
+    dates = [pd.Timestamp(d) for d in dates]
+    if model_key in ("arima", "sarima"):
+        last_date = extra["last_date"]
+        steps = max((max(dates) - last_date).days, 1)
+        mean = model.get_forecast(steps=steps).predicted_mean
+        mean.index = [last_date + pd.Timedelta(days=i + 1) for i in range(steps)]
+        return mean.reindex(dates).clip(lower=0)
+    if model_key in ("rf", "xgb", "lgbm"):
+        rows = pd.concat([build_future_feature_row(df, d) for d in dates], ignore_index=True)
+        return pd.Series(model.predict(rows[FEATURE_COLS]), index=dates).clip(lower=0)
+    raise ValueError("A multi-day forecast path is not available for this model.")

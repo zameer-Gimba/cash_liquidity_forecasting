@@ -52,10 +52,10 @@ The dataset carries three targets: `Target_Next_Day_Withdrawal_Amount`, `Target_
 cash_liquidity_forecasting/
 ├── data/feature_engineered_dataset/   # canonical liquidity_dataset.csv (immutable)
 ├── notebooks/
-├── src/preprocessing/                 # pipeline.py, path_setup helpers
+├── src/preprocessing/                 # moniepoint.py (read + categorise), pipeline.py (daily features)
 ├── src/models/                        # train_*.py, evaluate_models.py, predict_deposit.py
 ├── src/utils/                         # config.py, dataset_detector.py, logger.py
-├── streamlit_app/pages/
+├── streamlit_app/app.py               # dashboard (single file, sidebar navigation)
 ├── assets/
 ├── models/saved_models/
 ├── reports/{figures,tables,results}/
@@ -165,16 +165,15 @@ streamlit run streamlit_app/app.py --server.address=0.0.0.0 --server.port=8501
 
 When using GitHub Codespaces or GitHub.dev, open the forwarded port preview URL for port `8501` rather than the repository root.
 
-`requirements.txt` includes XGBoost, LightGBM, statsmodels, and TensorFlow alongside the core Streamlit/pandas stack, since the Forecasting page trains any of the 6 withdrawal models live, on demand, in the running app — not just offline. `requirements-ml.txt` is kept as an alias to the same file for local/offline training environments that reference it by name.
+The app (`streamlit_app/app.py`, one file with sidebar navigation) has five pages:
 
-Pages:
+- **Forecast**: pick any date (tomorrow by default) and a model (SARIMA is preselected as the most accurate). It shows the cash to hold, expected cash-outs, the float to hold and whether the day looks busy compared with the last 90 trading days, plus a chart of recent history and the forecast. Models are trained live on the active data and cached. When the date is more than 30 days past the last data, the page says so: far ahead, the forecast only carries the weekly pattern and the last known level.
+- **Cash flow history**: monthly cash-outs vs deposits, the average day by weekday, and money by category, for any period.
+- **Model accuracy**: every model against the simple rules on the held-out test period, in plain language.
+- **Data**: upload a Moniepoint statement (`.xlsx`) or an engineered CSV. Optionally name your other accounts so transfers between them are treated as your own float. A reconciliation table shows that the category totals match the statement totals. Files are processed in memory and never stored.
+- **About**: the method and its limitations.
 
-- **Dashboard**: predicted next-day withdrawal demand, recommended cash reserve, liquidity risk level, predicted next-day deposit demand, and recommended float top-up, plus a withdrawal/deposit history chart.
-- **Forecasting**: pick a withdrawal model (Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, or LSTM), see its prediction and recommended reserve, and a two-stage deposit forecast (classifier + regressor) below it. Falls back to a historical (last-30-day average) baseline when an artifact is missing or incompatible.
-- **Analytics**: withdrawal trends and day-of-week seasonality, deposit trends and rolling averages, and a category breakdown (Airtime, BillPayment, WalletTransfer, Transfer, Levy, Commission, Reversal, Insurance, Other).
-- **Model Comparison**: withdrawal model metrics table and a two-stage deposit comparison (Stage 1 classifier metrics, Stage 2 regressor metrics), read from `reports/results/`.
-
-The dataset loaded in the sidebar (canonical or uploaded) is shared across all pages via `st.session_state['clean_dataset']`.
+`requirements.txt` includes XGBoost, LightGBM, statsmodels and TensorFlow, because the app trains models on demand.
 
 ## Publishing to GitHub
 
