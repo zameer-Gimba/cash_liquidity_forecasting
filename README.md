@@ -8,13 +8,41 @@ POS agents frequently face liquidity mismatches: insufficient physical cash for 
 
 ## Dataset
 
-The canonical, immutable dataset is `data/feature_engineered_dataset/liquidity_dataset.csv`: 1,513 rows × 50 columns spanning 16 December 2021 to 22 May 2026, with zero missing values. It is never overwritten by any pipeline step; it is the single source of truth for training.
+The canonical dataset is `data/feature_engineered_dataset/liquidity_dataset.csv`: 1,514 daily rows × 50 columns, built from one Moniepoint POS agent's full account statement (16 December 2021 to 22 April 2026, 194,582 transactions). It holds daily aggregates only — no narrations, names or account numbers. The raw statement is never committed.
 
-Raw Moniepoint POS agent bank statements (`.xlsx`/`.csv`) can also be uploaded through the Streamlit sidebar. Raw statements include:
+Normal trading ran until mid-January 2026; after that the account was barely used (a few transactions a week, then none). Training and evaluation therefore stop at `CANONICAL_TRAINING_END_DATE = 2026-01-16` (`src/utils/config.py`), giving 1,487 usable days.
 
-- `TransactionDate`, `Narration`, `Reference`, `Debit`, `Credit`, `Balance`
+Rebuild it from a statement export with:
 
-Uploads are auto-detected (`FEATURE_ENGINEERED`, `RAW_STATEMENT`, `PARTIALLY_ENGINEERED`, or `UNKNOWN`), cleaned, classified into 11 narration categories, feature-engineered, and validated against `reference_schema.json` — entirely in-memory (`st.session_state`), never written back to the canonical CSV. See `src/preprocessing/pipeline.py` and `src/utils/dataset_detector.py`.
+```bash
+python -m src.preprocessing.pipeline path/to/statement.xlsx --out data/feature_engineered_dataset/liquidity_dataset.csv
+```
+
+### How transactions are categorised
+
+Moniepoint has recorded the same business event in different ways over the years — customer cash deposits were `DEP` entries until 2022, then `TRF` transfers with changing narrations; card cash-outs moved from `WTH` to `PUR` in 2025. An earlier version matched narration text for one hard-coded account, so from late 2023 onward every deposit was missed (deposits read ₦0 for 2024–2025) and 2025 card cash-outs were partly lost.
+
+`src/preprocessing/moniepoint.py` now categorises by the transaction-type code at the start of each `Reference` (`WTH|…`, `TRF|…`) plus the debit/credit side, and uses the narration only to tell the agent's own float movements apart from customers:
+
+| Category | What it means for liquidity | How it is recognised |
+|---|---|---|
+| Withdrawal | Customer cash-out (pays out physical cash) | Card cash-outs (`WTH`, `PUR`) and transfers *in* from customers (transfer cash-out) |
+| Deposit | Customer cash deposit (uses up float) | `DEP`, and transfers *out* to customers |
+| WalletTransfer | Agent's own float moves (not customer demand) | `FND`/`WFT`, transfers between masked own wallets, money *from* an own account (credits) or *to* an own account (debits) |
+| Levy, Commission, Airtime, BillPayment, Insurance, Reversal, Other | Fees, cashback, VAS, refunds, loans/terminal events | Reference codes and levy/stamp-duty narrations |
+
+Own accounts: the holder name is read from the statement header; other own-account names come from a git-ignored `config/own_accounts.txt` (one per line) or the `LIQUIDITY_OWN_ACCOUNTS` environment variable, so no personal names live in the code.
+
+Every transaction lands in exactly one category, and the category totals reconcile to the statement totals to the naira (`moniepoint.reconciliation`). Corrected yearly totals (₦ millions):
+
+| Year | Withdrawals | Deposits | Own float in / out |
+|---|---|---|---|
+| 2022 | 668 | 665 | 128 / 144 |
+| 2023 | 546 | 516 | 67 / 102 |
+| 2024 | 606 | 621 | 21 / 14 |
+| 2025 | 395 | 420 | 67 / 47 |
+
+Uploads through the Streamlit sidebar (Moniepoint `.xlsx` exports, or an engineered CSV) go through the same code, entirely in memory (`st.session_state`).
 
 The dataset carries three targets: `Target_Next_Day_Withdrawal_Amount`, `Target_Next_Day_Deposit_Amount`, and `Target_Has_Deposit_Tomorrow` (binary).
 
@@ -44,11 +72,11 @@ cash_liquidity_forecasting/
 ## Methodology
 
 1. Detect uploaded dataset type and auto-clean/classify/engineer raw POS statements when needed (missing values, duplicates, dates, numeric currency fields, reversal/retry handling).
-2. Aggregate transactions to daily liquidity observations across 11 narration categories (Withdrawal, Deposit, Airtime, BillPayment, WalletTransfer, Transfer, Levy, Commission, Reversal, Insurance, Other).
+2. Categorise every transaction (see above) and aggregate to daily liquidity observations. The `Transfer` columns are kept for schema compatibility but are always 0, since transfers are now split into Withdrawal, Deposit and WalletTransfer.
 3. Engineer calendar, category amount/count, behavioural, lag, and rolling-window features for both withdrawal and deposit series (46 features total).
-4. Split chronologically into 70% training, 15% validation, and 15% testing (`src/models/common.py:chronological_split`).
-5. Train and compare Random Forest, XGBoost, LightGBM, ARIMA, and SARIMA for withdrawal demand, plus an LSTM sequence model.
-6. Forecast deposits with a two-stage architecture: a classifier predicts whether a deposit occurs tomorrow (`Target_Has_Deposit_Tomorrow`), then a regressor trained only on deposit-active days predicts the amount (`Target_Next_Day_Deposit_Amount`). This avoids the zero-inflation problem of a direct regression on a target where ~64% of days have no deposit.
+4. Split chronologically: the last 15% of days (7 June 2025 – 16 January 2026, 224 days) is the test set; models are fit on everything before it (`src/models/common.py:fit_eval_split`).
+5. Train and compare Random Forest, XGBoost, LightGBM, ARIMA, SARIMA (weekly seasonality) and an LSTM for withdrawal demand, against three simple baselines. Tree models forecast relative to the current 7-day level (`src/models/level_scaled.py`) because volumes fell sharply in 2025 and trees cannot extrapolate below their training range. ARIMA/SARIMA are scored one step ahead, re-using each day's data as it arrives.
+6. Forecast deposits with a two-stage architecture: a classifier predicts whether a deposit occurs tomorrow (`Target_Has_Deposit_Tomorrow`), then a regressor trained only on deposit-active days predicts the amount (`Target_Next_Day_Deposit_Amount`). With deposits now counted correctly, the agent records a deposit on almost every active day, so Stage 1 is near-trivial; it is kept for agents with sparser deposits.
 7. Persist models and evaluation tables under `models/saved_models/` and `reports/results/`.
 8. Serve results through a Streamlit decision-support dashboard with graceful fallback to a historical baseline when an artifact is missing or incompatible.
 
@@ -83,15 +111,39 @@ python -m src.models.train_deposit_regressor
 python -m src.models.evaluate_models
 ```
 
-All training scripts read directly from the immutable canonical dataset (`src/utils/config.py:CANONICAL_DATASET_PATH`) — there is no separate feature-generation CLI step for the canonical CSV. Raw statement processing only happens transiently through the Streamlit upload flow.
+All training scripts read the canonical dataset (`src/utils/config.py:CANONICAL_DATASET_PATH`).
 
 ## Evaluation
 
-Regression and classification metrics are written to `reports/results/`:
+Test period: 7 June 2025 – 16 January 2026 (224 trading days, never used for fitting). Each forecast is for the next active day. Lower MAE (mean absolute error, ₦) is better. A model is only useful if it beats the simple baselines.
 
-- `withdrawal_model_comparison.csv` — MAE, RMSE, MAPE, R² for all 6 withdrawal models (Random Forest, XGBoost, LightGBM, ARIMA, SARIMA, LSTM)
-- `deposit_classifier_comparison.csv` — Accuracy, Precision, Recall, F1, ROC AUC for the Stage 1 classifiers
-- `deposit_regressor_comparison.csv` — MAE, RMSE, MAPE, R² for the Stage 2 regressors (deposit-active days only)
+**Withdrawals (physical cash needed tomorrow)**
+
+| Model | MAE (₦) | vs best baseline |
+|---|---|---|
+| Baseline: same as today | 630,137 | |
+| Baseline: same weekday last week | 641,243 | |
+| Baseline: 7-day average | 510,391 | best baseline |
+| Random Forest | 509,168 | −0.2% |
+| XGBoost | 530,022 | +3.8% |
+| LightGBM | 537,998 | +5.4% |
+| ARIMA | 489,180 | −4.2% |
+| **SARIMA (weekly)** | **473,646** | **−7.2%** |
+| LSTM | 877,082 | +72% |
+
+**Deposit amount (float needed tomorrow)**
+
+| Model | MAE (₦) | vs best baseline |
+|---|---|---|
+| Baseline: 7-day average | 670,681 | best baseline |
+| Random Forest | 654,285 | −2.4% |
+| XGBoost | 663,786 | −1.0% |
+| LightGBM | 683,055 | +1.8% |
+| LSTM | 807,710 | +20% |
+
+What this means, honestly: day-to-day cash demand at a single agent is mostly noise around a weekly rhythm and a slowly moving level. SARIMA, which models exactly that, is the best withdrawal forecaster and cuts the error of the best simple rule by about 7%. The machine-learning models roughly match the 7-day average but do not clearly beat it; the LSTM is worse than every baseline with this much data. R² stays near zero for every method, including the baselines. More agents, and outside signals such as market days, salary dates and holidays, are the most likely way to do better.
+
+Full tables: `reports/results/withdrawal_model_comparison.csv`, `deposit_classifier_comparison.csv`, `deposit_regressor_comparison.csv`. Regenerate with `python -m src.models.evaluate_models`.
 
 ## Liquidity Recommendation Engine
 
@@ -164,7 +216,8 @@ Add dashboard screenshots to `assets/` after launching the app and update this s
 ## Future Work
 
 - Add automated model retraining from new transaction feeds.
-- Add external features such as holidays, market days, weather, and local events.
+- Add external features such as holidays, market days, salary dates and local events.
+- Pool data from several agents.
 - Add calibrated prediction intervals.
 - Add FastAPI endpoints for mobile/agent integrations.
 - Add explainability reports with SHAP for tree-based models.

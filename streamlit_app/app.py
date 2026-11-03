@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 # 3. Local repository imports
-from src.preprocessing.pipeline import process_dataset, validate_schema
+from src.preprocessing.pipeline import load_input, process_dataset, validate_schema
 from src.utils.config import CANONICAL_DATASET_PATH, CANONICAL_TRAINING_END_DATE, FEATURE_COLS
 from src.utils.dataset_detector import attempt_auto_repair, detect_dataset_type
 
@@ -47,7 +47,8 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload bank statement or engineered CSV", type=['csv', 'xlsx'])
     if uploaded is not None:
         try:
-            raw = pd.read_excel(uploaded) if uploaded.name.lower().endswith(('xlsx', 'xls')) else pd.read_csv(uploaded)
+            # Moniepoint .xlsx exports are parsed past their header block; CSVs are read as-is.
+            raw = load_input(uploaded)
             kind = detect_dataset_type(raw)
             st.info(f"Detected: {kind}")
             save_col, clear_col = st.columns(2)

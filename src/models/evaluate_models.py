@@ -9,7 +9,7 @@ from src.models import (
     train_sarima,
     train_xgboost,
 )
-from src.models.common import save_results
+from src.models.common import fit_eval_split, load_canonical_data, naive_baselines, save_results
 from src.utils.config import TARGET_WITHDRAWAL
 
 WITHDRAWAL_MODELS = [
@@ -23,7 +23,8 @@ WITHDRAWAL_MODELS = [
 
 
 def main() -> None:
-    rows = []
+    df = load_canonical_data(); _, test = fit_eval_split(df)
+    rows = [{**r, 'Target': TARGET_WITHDRAWAL} for r in naive_baselines(test, 'Withdrawal_Amount', TARGET_WITHDRAWAL, df)]
     for label, module in WITHDRAWAL_MODELS:
         try:
             metrics = module.main()

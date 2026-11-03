@@ -6,6 +6,7 @@ matplotlib>=3.7
 seaborn>=0.12
 streamlit>=1.32
 openpyxl>=3.1
+python-calamine>=0.2
 pytest>=7.4
 statsmodels>=0.14
 xgboost>=2.0

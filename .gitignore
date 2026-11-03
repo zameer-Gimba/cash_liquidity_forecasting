@@ -9,3 +9,4 @@ data/**/*.xlsx
 !data/feature_engineered_dataset/liquidity_dataset.csv
 .env
 .DS_Store
+config/own_accounts.txt

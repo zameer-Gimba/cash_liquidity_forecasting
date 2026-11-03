@@ -50,35 +50,20 @@ def train_withdrawal_model(model_key: str, df: pd.DataFrame) -> tuple[Any, dict]
     ordered[DATE_COL] = pd.to_datetime(ordered[DATE_COL])
     X, y = ordered[FEATURE_COLS], ordered[TARGET_WITHDRAWAL]
 
-    if model_key == "rf":
-        from sklearn.ensemble import RandomForestRegressor
-        model = RandomForestRegressor(n_estimators=80, max_depth=10, random_state=RANDOM_STATE, n_jobs=-1)
-        model.fit(X, y)
-        return model, {}
-
-    if model_key == "xgb":
-        from xgboost import XGBRegressor
-        model = XGBRegressor(n_estimators=80, max_depth=3, learning_rate=0.08, objective="reg:squarederror", random_state=RANDOM_STATE, n_jobs=2)
-        model.fit(X, y)
-        return model, {}
-
-    if model_key == "lgbm":
-        from lightgbm import LGBMRegressor
-        model = LGBMRegressor(n_estimators=80, max_depth=4, learning_rate=0.08, random_state=RANDOM_STATE, verbose=-1)
-        model.fit(X, y)
-        return model, {}
+    if model_key in ("rf", "xgb", "lgbm"):
+        from src.models.level_scaled import tree_regressor
+        return tree_regressor(model_key, "Withdrawal").fit(X, y), {}
 
     if model_key in ("arima", "sarima"):
-        series = ordered.set_index(DATE_COL)[TARGET_WITHDRAWAL].asfreq("D").ffill()
-        # The series is Withdrawal_Amount shifted one day ahead, so its last point reflects the day
-        # *after* the dataset's cutoff - drop it so the fit isn't anchored to an excluded value.
-        series = series.iloc[:-1]
+        # Daily withdrawals (inactive days carried forward); forecasting k days past the last
+        # date gives the expected withdrawal on that date.
+        series = ordered.set_index(DATE_COL)["Withdrawal_Amount"].asfreq("D").ffill()
         if model_key == "arima":
             from statsmodels.tsa.arima.model import ARIMA
             model = ARIMA(series, order=(1, 1, 1)).fit()
         else:
             from statsmodels.tsa.statespace.sarimax import SARIMAX
-            model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(0, 0, 0, 0), enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+            model = SARIMAX(series, order=(1, 0, 1), seasonal_order=(1, 0, 1, 7)).fit(disp=False)
         return model, {"last_date": series.index.max()}
 
     if model_key == "lstm":

@@ -44,3 +44,29 @@ def save_results(rows: Iterable[dict], path: str | Path) -> pd.DataFrame:
 
 def x_y(df: pd.DataFrame, target: str = TARGET_WITHDRAWAL):
     return df[FEATURE_COLS], df[target]
+
+def fit_eval_split(df: pd.DataFrame):
+    """(fit, test): the validation slice is not used for tuning, so models are fit on train+val."""
+    train, val, test = chronological_split(df)
+    return pd.concat([train, val]), test
+
+def naive_baselines(test: pd.DataFrame, amount_col: str, target: str, full: pd.DataFrame | None = None) -> list[dict]:
+    """Simple rules a forecast must beat, scored on the same test rows.
+
+    Each row's target is the *next* active day's amount, so:
+    - "Same as today":       today's amount
+    - "Same weekday last week": the amount 6 active days before today (≈ same weekday as tomorrow)
+    - "7-day average":       mean of the last 7 active days including today
+    """
+    full = test if full is None else full
+    series = full[amount_col]
+    preds = {
+        'Baseline: same as today': series,
+        'Baseline: same weekday last week': series.shift(6),
+        'Baseline: 7-day average': series.rolling(7, min_periods=1).mean(),
+    }
+    rows = []
+    for label, pred in preds.items():
+        p = pred.reindex(test.index).fillna(series.reindex(test.index))
+        rows.append({'Model': label, **regression_metrics(test[target], p)})
+    return rows
