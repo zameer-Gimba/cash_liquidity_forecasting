@@ -75,7 +75,7 @@ CATEGORY_LABELS = {
     "Transfer": "Unclassified transfers",
 }
 
-st.set_page_config(page_title=APP_TITLE, page_icon="💧", layout="wide")
+st.set_page_config(page_title=APP_TITLE, page_icon=str(PROJECT_ROOT / "assets" / "favicon.png"), layout="wide")
 
 
 # ------------------------------------------------------------------ data & state
