@@ -179,6 +179,8 @@ The app (`streamlit_app/app.py`, one file with sidebar navigation) has five page
 
 The same forecasts are available as a REST API (FastAPI) for apps, agent-network dashboards and fintech back ends.
 
+**Live API:** https://cash-liquidity-api.onrender.com/docs (API key required; on the free plan the first request after a quiet spell can take about a minute while the service wakes up).
+
 ```bash
 pip install -r requirements-api.txt
 uvicorn api.main:app --reload          # interactive docs at http://localhost:8000/docs

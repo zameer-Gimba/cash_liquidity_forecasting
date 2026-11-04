@@ -507,6 +507,8 @@ without their own data. Day-to-day demand is noisy: the best model beats a simpl
 about 7%, not by a wide margin. Forecasts far past the last statement date can't see what changed since.
 The model doesn't yet know about holidays, market days or salary dates.
 
+**API:** the same forecasts are available as a REST API for apps and partners: [API documentation](https://cash-liquidity-api.onrender.com/docs) (key required).
+
 **Author:** Muhammad Ibrahim Gimba · [GitHub]({GITHUB_URL})
 """)
 
