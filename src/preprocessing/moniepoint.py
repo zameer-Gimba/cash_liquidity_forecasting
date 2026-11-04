@@ -77,7 +77,7 @@ def _normalise(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(text).upper())
 
 
-def own_account_keywords(holder_name: str = "") -> list[str]:
+def own_account_keywords(holder_name: str = "", own_accounts: list[str] | None = None) -> list[str]:
     """Normalised names whose transfers count as the agent's own float."""
 
     names = []
@@ -87,6 +87,7 @@ def own_account_keywords(holder_name: str = "") -> list[str]:
         names += [line.strip() for line in OWN_ACCOUNTS_FILE.read_text(encoding="utf-8").splitlines()
                   if line.strip() and not line.startswith("#")]
     names += [n.strip() for n in os.environ.get("LIQUIDITY_OWN_ACCOUNTS", "").split(",") if n.strip()]
+    names += [n.strip() for n in (own_accounts or []) if n and n.strip()]
     keys = {_normalise(n) for n in names}
     # Also match the first two words alone (bank apps often truncate names).
     for name in names:
@@ -163,10 +164,10 @@ def tidy_transactions(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("Date", kind="stable").reset_index(drop=True)
 
 
-def categorise(df: pd.DataFrame, holder_name: str = "") -> pd.Series:
+def categorise(df: pd.DataFrame, holder_name: str = "", own_accounts: list[str] | None = None) -> pd.Series:
     """Liquidity category for every transaction (see module docstring)."""
 
-    keys = own_account_keywords(holder_name)
+    keys = own_account_keywords(holder_name, own_accounts)
     narration = df["Narration"].str.upper().str.strip()
     code = df["Code"]
     is_credit = df["Credit"] > 0

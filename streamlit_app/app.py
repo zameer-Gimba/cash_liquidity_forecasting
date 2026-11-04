@@ -459,25 +459,16 @@ def page_data() -> None:
 
 
 def process_upload(uploaded, own_accounts: str) -> None:
-    import os
-
     raw = load_input(uploaded)
     kind = detect_dataset_type(raw)
     report = None
     if kind == "RAW_STATEMENT":
-        previous = os.environ.get("LIQUIDITY_OWN_ACCOUNTS")
-        os.environ["LIQUIDITY_OWN_ACCOUNTS"] = own_accounts
-        try:
-            holder = raw.attrs.get("account_name", "")
-            clean = process_raw_statement(raw, holder)
-            from src.preprocessing.moniepoint import tidy_transactions
-            tx = tidy_transactions(raw)
-            report = reconciliation(tx, categorise(tx, holder))
-        finally:
-            if previous is None:
-                os.environ.pop("LIQUIDITY_OWN_ACCOUNTS", None)
-            else:
-                os.environ["LIQUIDITY_OWN_ACCOUNTS"] = previous
+        holder = raw.attrs.get("account_name", "")
+        names = [n.strip() for n in own_accounts.split(",") if n.strip()]
+        clean = process_raw_statement(raw, holder, names)
+        from src.preprocessing.moniepoint import tidy_transactions
+        tx = tidy_transactions(raw)
+        report = reconciliation(tx, categorise(tx, holder, names))
     elif kind == "FEATURE_ENGINEERED":
         clean = validate_schema(raw)
     elif kind == "PARTIALLY_ENGINEERED":

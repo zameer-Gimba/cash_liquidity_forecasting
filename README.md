@@ -175,6 +175,65 @@ The app (`streamlit_app/app.py`, one file with sidebar navigation) has five page
 
 `requirements.txt` includes XGBoost, LightGBM, statsmodels and TensorFlow, because the app trains models on demand.
 
+## REST API
+
+The same forecasts are available as a REST API (FastAPI) for apps, agent-network dashboards and fintech back ends.
+
+```bash
+pip install -r requirements-api.txt
+uvicorn api.main:app --reload          # interactive docs at http://localhost:8000/docs
+```
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| GET | `/health` | Health check |
+| GET | `/v1/models` | Available models and their tested accuracy against simple rules |
+| GET | `/v1/demo/forecast?date=&model=` | Forecast for the demo agent |
+| POST | `/v1/forecast` | Forecast from daily totals (JSON, at least 60 days; SARIMA or ARIMA) |
+| POST | `/v1/statements/forecast` | Forecast from an uploaded Moniepoint statement (any model) |
+| POST | `/v1/statements/analyse` | Categorise a statement and check it reconciles (counts and amounts only) |
+
+`date` defaults to tomorrow; `model` is one of `sarima` (default, most accurate in testing), `arima`, `rf`, `xgb`, `lgbm`. The LSTM is not offered: it is slow and was the least accurate model.
+
+```bash
+# Demo agent
+curl "http://localhost:8000/v1/demo/forecast?date=2026-01-20&model=sarima"
+
+# Your own statement
+curl -F "file=@statement.xlsx" -F "model=sarima" -F "own_accounts=My Other Business Ltd" \
+     http://localhost:8000/v1/statements/forecast
+
+# Daily totals
+curl -H "Content-Type: application/json" http://localhost:8000/v1/forecast \
+     -d '{"daily": [{"date": "2025-11-01", "withdrawals": 850000, "deposits": 910000}, ...], "date": "2026-01-05"}'
+```
+
+Example response (shortened):
+
+```json
+{
+  "date": "2026-01-20", "weekday": "Tuesday", "model": "SARIMA", "horizon_days": 4,
+  "withdrawals": {"expected": 616648.49, "safety_buffer": 0.15, "cash_to_hold": 709145.76},
+  "deposits": {"expected": 656823.46, "safety_buffer": 0.1, "float_to_hold": 722505.81, "method": "SARIMA on daily deposits"},
+  "demand_level": "normal",
+  "warnings": [],
+  "typical_error": {"mae": 473646.4, "vs_best_simple_rule_pct": -7.2}
+}
+```
+
+When the date is more than 30 days past the last data, `warnings` says so: that far ahead the forecast only carries the weekly pattern and the last known level.
+
+**Security and privacy.** Set `LIQUIDITY_API_KEYS` (comma-separated) to require an `X-API-Key` header on every endpoint except `/health`; without it the API is open, for local use. Uploads are limited to 50 MB, processed in memory and never stored or logged, and responses contain no names or account numbers. Fitted models are cached in memory per dataset, so repeat requests are fast.
+
+**Deploy.** `Dockerfile.api` builds a lean image (no Streamlit or TensorFlow) that runs as a non-root user:
+
+```bash
+docker build -f Dockerfile.api -t liquidity-api .
+docker run -p 8000:8000 -e LIQUIDITY_API_KEYS=change-me liquidity-api
+```
+
+On Render, choose **New → Blueprint** and select this repository; `render.yaml` sets up the service, and you add `LIQUIDITY_API_KEYS` in the dashboard. A Python client example is in `examples/api_client.py`.
+
 ## Publishing to GitHub
 
 All source files should be committed before publishing. See `docs/GITHUB_REPOSITORY_UPLOAD.md` for step-by-step GitHub upload instructions, or run:

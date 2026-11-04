@@ -1,0 +1,16 @@
+# Lean dependencies for the REST API only (no Streamlit, no TensorFlow).
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+joblib>=1.3
+openpyxl>=3.1
+python-calamine>=0.2
+statsmodels>=0.14
+# CPU-only XGBoost on Linux avoids ~700 MB of unused GPU libraries. Its latest release can lag
+# the full package, so XGBoost forecasts may differ slightly from the dashboard (SARIMA is the default).
+xgboost-cpu>=2.1; sys_platform == "linux"
+xgboost>=2.0; sys_platform != "linux"
+lightgbm>=4.0
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

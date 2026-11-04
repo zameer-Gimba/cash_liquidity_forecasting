@@ -62,7 +62,7 @@ def _date_column(df: pd.DataFrame) -> str:
         if c in df.columns: return c
     raise ValueError('Raw statement must contain a transaction date column.')
 
-def process_raw_statement(df: pd.DataFrame, holder_name: str = '') -> pd.DataFrame:
+def process_raw_statement(df: pd.DataFrame, holder_name: str = '', own_accounts: list[str] | None = None) -> pd.DataFrame:
     """Daily liquidity features from a raw transaction statement (see moniepoint.categorise)."""
     holder_name = holder_name or df.attrs.get('account_name', '')
     df = df.copy()
@@ -72,7 +72,7 @@ def process_raw_statement(df: pd.DataFrame, holder_name: str = '') -> pd.DataFra
     df = tidy_transactions(df)
     df['Balance'] = df['Balance'].ffill().fillna(0.0)
     df[DATE_COL] = df['Date'].dt.normalize()
-    df['Transaction_Category'] = categorise(df, holder_name)
+    df['Transaction_Category'] = categorise(df, holder_name, own_accounts)
     rows = []
     for day, g in df.groupby(DATE_COL, sort=True):
         row = {DATE_COL: day.strftime('%Y-%m-%d'), 'Total_Debit': g['Debit'].sum(), 'Total_Credit': g['Credit'].sum(), 'Transaction_Count': len(g), 'Closing_Balance': g['Balance'].iloc[-1]}

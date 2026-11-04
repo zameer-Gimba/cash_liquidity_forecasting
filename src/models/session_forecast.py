@@ -26,11 +26,11 @@ MODEL_OPTIONS: dict[str, str] = {
 
 def _calendar_fields(target_date: pd.Timestamp) -> dict[str, int]:
     return {
-        "DayOfWeek": int(target_date.dayofweek),
+        "DayOfWeek": int(target_date.day_of_week),
         "Month": int(target_date.month),
         "WeekOfMonth": int((target_date.day - 1) // 7) + 1,
         "Quarter": int(target_date.quarter),
-        "IsWeekend": int(target_date.dayofweek in (5, 6)),
+        "IsWeekend": int(target_date.day_of_week in (5, 6)),
     }
 
 

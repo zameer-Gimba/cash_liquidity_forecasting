@@ -1,0 +1,22 @@
+# REST API image:  docker build -f Dockerfile.api -t liquidity-api .
+#                  docker run -p 8000:8000 -e LIQUIDITY_API_KEYS=change-me liquidity-api
+FROM python:3.11-slim
+
+# LightGBM needs the OpenMP runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements-api.txt ./
+RUN pip install --no-cache-dir -r requirements-api.txt
+COPY src ./src
+COPY api ./api
+COPY models ./models
+COPY reports/results ./reports/results
+COPY data/feature_engineered_dataset/liquidity_dataset.csv ./data/feature_engineered_dataset/
+COPY reference_schema.json ./
+
+RUN useradd --create-home appuser
+USER appuser
+ENV PORT=8000
+EXPOSE 8000
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"]

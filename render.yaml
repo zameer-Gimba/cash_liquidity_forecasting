@@ -1,0 +1,11 @@
+# Render blueprint for the REST API (Dashboard -> New -> Blueprint -> this repo).
+services:
+  - type: web
+    name: cash-liquidity-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: LIQUIDITY_API_KEYS
+        sync: false   # set your own comma-separated keys in the Render dashboard
