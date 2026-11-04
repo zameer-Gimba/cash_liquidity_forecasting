@@ -17,6 +17,8 @@ COPY reference_schema.json ./
 
 RUN useradd --create-home appuser
 USER appuser
-ENV PORT=8000
+# One maths thread: small cloud instances get a slice of one CPU, and many BLAS threads
+# fighting over it made model fitting ~100x slower.
+ENV PORT=8000 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"]

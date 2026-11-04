@@ -190,6 +190,13 @@ def _saved_deposit_models():
     return _deposit_models
 
 
+def warm_up() -> None:
+    """Fit the default model on the demo data so the first demo request is fast."""
+    ds = demo_dataset()
+    for series in ("withdrawal", "deposit"):
+        _fit(ds, DEFAULT_MODEL, series)
+
+
 def test_results() -> dict[str, dict]:
     """Held-out test error per model (demo agent, 7 Jun 2025 – 16 Jan 2026)."""
     path = ROOT_DIR / "reports" / "results" / "withdrawal_model_comparison.csv"

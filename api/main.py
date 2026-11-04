@@ -17,7 +17,9 @@ import datetime as dt
 import hmac
 import io
 import os
+import threading
 import time
+from contextlib import asynccontextmanager
 from typing import Literal
 
 import pandas as pd
@@ -37,6 +39,7 @@ from src.forecast_service import (
     demo_dataset,
     forecast,
     test_results,
+    warm_up,
 )
 from src.preprocessing.moniepoint import categorise, reconciliation, tidy_transactions
 from src.preprocessing.pipeline import load_input, process_raw_statement, validate_schema
@@ -60,7 +63,15 @@ CATEGORY_LABELS = {
     "Other": "Loans and terminal events",
 }
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Pre-train the demo models in the background; the server accepts requests meanwhile.
+    threading.Thread(target=warm_up, daemon=True).start()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Agent Liquidity Forecaster API",
     version=API_VERSION,
     description=(

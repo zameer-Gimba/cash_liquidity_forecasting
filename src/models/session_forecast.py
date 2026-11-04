@@ -60,10 +60,11 @@ def train_withdrawal_model(model_key: str, df: pd.DataFrame) -> tuple[Any, dict]
         series = ordered.set_index(DATE_COL)["Withdrawal_Amount"].asfreq("D").ffill()
         if model_key == "arima":
             from statsmodels.tsa.arima.model import ARIMA
-            model = ARIMA(series, order=(1, 1, 1)).fit()
+            model = ARIMA(series, order=(1, 1, 1)).fit(low_memory=True)
         else:
             from statsmodels.tsa.statespace.sarimax import SARIMAX
-            model = SARIMAX(series, order=(1, 0, 1), seasonal_order=(1, 0, 1, 7)).fit(disp=False)
+            # low_memory keeps only what forecasting needs (~0.5 MB instead of ~20 MB per model).
+            model = SARIMAX(series, order=(1, 0, 1), seasonal_order=(1, 0, 1, 7)).fit(disp=False, low_memory=True)
         return model, {"last_date": series.index.max()}
 
     if model_key == "lstm":
