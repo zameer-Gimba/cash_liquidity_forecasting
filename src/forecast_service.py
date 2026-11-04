@@ -191,10 +191,11 @@ def _saved_deposit_models():
 
 
 def warm_up() -> None:
-    """Fit the default model on the demo data so the first demo request is fast."""
+    """Fit the public demo models so the first demo requests are fast."""
     ds = demo_dataset()
-    for series in ("withdrawal", "deposit"):
-        _fit(ds, DEFAULT_MODEL, series)
+    for model_key in ("sarima", "arima"):  # the models the public demo offers
+        for series in ("withdrawal", "deposit"):
+            _fit(ds, model_key, series)
 
 
 def test_results() -> dict[str, dict]:

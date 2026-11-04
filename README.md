@@ -179,7 +179,7 @@ The app (`streamlit_app/app.py`, one file with sidebar navigation) has five page
 
 The same forecasts are available as a REST API (FastAPI) for apps, agent-network dashboards and fintech back ends.
 
-**Live API:** https://cash-liquidity-api.onrender.com/docs (API key required; on the free plan the first request after a quiet spell can take about a minute while the service wakes up).
+**Live API:** https://cash-liquidity-api.onrender.com/docs. The demo forecast (SARIMA, ARIMA) and the model list are open to everyone, rate-limited to 20 requests a minute; your own data needs an API key. On the free plan the first request after a quiet spell can take about a minute while the service wakes up.
 
 ```bash
 pip install -r requirements-api.txt
@@ -225,7 +225,7 @@ Example response (shortened):
 
 When the date is more than 30 days past the last data, `warnings` says so: that far ahead the forecast only carries the weekly pattern and the last known level.
 
-**Security and privacy.** Set `LIQUIDITY_API_KEYS` (comma-separated) to require an `X-API-Key` header on every endpoint except `/health`; without it the API is open, for local use. Uploads are limited to 50 MB, processed in memory and never stored or logged, and responses contain no names or account numbers. Fitted models are cached in memory per dataset, so repeat requests are fast.
+**Security and privacy.** Set `LIQUIDITY_API_KEYS` (comma-separated) to require an `X-API-Key` header on the endpoints that take data (`/v1/forecast`, `/v1/statements/*`) and on the tree models in the demo. `/health`, `/v1/models` and the SARIMA/ARIMA demo stay public, limited to 20 requests a minute per client. Without the variable the whole API is open, for local use. Uploads are limited to 50 MB, processed in memory and never stored or logged, and responses contain no names or account numbers. Fitted models are cached in memory per dataset, so repeat requests are fast.
 
 **Deploy.** `Dockerfile.api` builds a lean image (no Streamlit or TensorFlow) that runs as a non-root user:
 

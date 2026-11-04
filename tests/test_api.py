@@ -109,7 +109,29 @@ def test_bad_file_rejected():
 
 def test_api_key(monkeypatch):
     monkeypatch.setenv("LIQUIDITY_API_KEYS", "secret-1,secret-2")
-    assert client.get("/v1/models").status_code == 401
-    assert client.get("/v1/models", headers={"X-API-Key": "wrong"}).status_code == 401
-    assert client.get("/v1/models", headers={"X-API-Key": "secret-2"}).status_code == 200
-    assert client.get("/health").status_code == 200  # health stays open
+    rows = {"daily": _daily_totals()}
+    assert client.post("/v1/forecast", json=rows).status_code == 401
+    assert client.post("/v1/forecast", json=rows, headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.post("/v1/forecast", json=rows, headers={"X-API-Key": "secret-2"}).status_code == 200
+    assert client.get("/health").status_code == 200
+
+
+def test_public_demo(monkeypatch):
+    from api import main
+    monkeypatch.setenv("LIQUIDITY_API_KEYS", "secret-1")
+    main._hits.clear()
+    assert client.get("/v1/models").status_code == 200
+    assert client.get("/v1/demo/forecast", params={"date": "2026-01-20"}).status_code == 200
+    assert client.get("/v1/demo/forecast", params={"date": "2026-01-20", "model": "rf"}).status_code == 401
+    assert client.get("/v1/demo/forecast", params={"date": "2026-01-20", "model": "lgbm"},
+                      headers={"X-API-Key": "secret-1"}).status_code == 200
+
+
+def test_public_rate_limit(monkeypatch):
+    from api import main
+    monkeypatch.setenv("LIQUIDITY_API_KEYS", "secret-1")
+    main._hits.clear()
+    codes = [client.get("/v1/models", headers={"X-Forwarded-For": "203.0.113.9"}).status_code for _ in range(main.PUBLIC_RATE_LIMIT + 1)]
+    assert codes[:-1] == [200] * main.PUBLIC_RATE_LIMIT and codes[-1] == 429
+    assert client.get("/v1/models", headers={"X-Forwarded-For": "203.0.113.9", "X-API-Key": "secret-1"}).status_code == 200
+    main._hits.clear()

@@ -19,6 +19,7 @@ import io
 import os
 import threading
 import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -79,7 +80,9 @@ app = FastAPI(
         "from the agent's own Moniepoint statement or daily totals.\n\n"
         "* `cash_to_hold` = expected customer cash-outs + 15% buffer\n"
         "* `float_to_hold` = expected customer deposits + 10% buffer\n\n"
-        "Amounts are in naira (NGN). Statements are processed in memory and never stored."
+        "Amounts are in naira (NGN). Statements are processed in memory and never stored.\n\n"
+        "**Try it without a key:** open `GET /v1/demo/forecast`, click *Try it out*, then *Execute*. "
+        "Your own data (statements and daily totals) needs an API key: click **Authorize**."
     ),
     contact={"name": "Muhammad Ibrahim Gimba", "url": "https://github.com/zameer-Gimba/cash_liquidity_forecasting"},
 )
@@ -88,10 +91,48 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "P
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
+def _configured_keys() -> list[str]:
+    return [k.strip() for k in os.environ.get("LIQUIDITY_API_KEYS", "").split(",") if k.strip()]
+
+
+def _key_ok(key: str | None) -> bool:
+    keys = _configured_keys()
+    return not keys or any(key and hmac.compare_digest(key, k) for k in keys)
+
+
 def require_key(key: str | None = Security(_api_key_header)) -> None:
-    keys = [k.strip() for k in os.environ.get("LIQUIDITY_API_KEYS", "").split(",") if k.strip()]
-    if keys and not any(key and hmac.compare_digest(key, k) for k in keys):
+    if not _key_ok(key):
         raise HTTPException(status_code=401, detail="Missing or invalid API key (X-API-Key header).")
+
+
+PUBLIC_DEMO_MODELS = {"sarima", "arima"}
+PUBLIC_RATE_LIMIT = 20          # requests per minute per client, for callers without a key
+_hits: dict[str, deque] = defaultdict(deque)
+_hits_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+
+def public_access(request: Request, key: str | None = Security(_api_key_header)) -> bool:
+    """Open to everyone, rate-limited per client unless a valid key is sent. Returns True for key holders."""
+    if _configured_keys() and _key_ok(key):
+        return True
+    now, ip = time.monotonic(), _client_ip(request)
+    with _hits_lock:
+        window = _hits[ip]
+        while window and now - window[0] > 60:
+            window.popleft()
+        if len(window) >= PUBLIC_RATE_LIMIT:
+            raise HTTPException(status_code=429, detail=f"Public demo limit is {PUBLIC_RATE_LIMIT} requests a minute. "
+                                                        "Please wait a moment, or ask for an API key.")
+        window.append(now)
+        if len(_hits) > 10_000:  # forget idle clients
+            for k in [k for k, v in _hits.items() if not v or now - v[-1] > 60]:
+                del _hits[k]
+    return not _configured_keys()
 
 
 @app.exception_handler(ForecastError)
@@ -254,7 +295,7 @@ def health() -> dict:
 
 
 @app.get("/v1/models", tags=["Service"], summary="Available models and their tested accuracy")
-def models(_: None = Depends(require_key)) -> dict:
+def models(_: bool = Depends(public_access)) -> dict:
     results = test_results()
     return {
         "default": DEFAULT_MODEL,
@@ -273,9 +314,15 @@ def demo_forecast(
     date: dt.date | None = Query(None, description="Forecast date; defaults to tomorrow"),
     model: ModelKey = Query(DEFAULT_MODEL),
     include_path: bool = Query(False),
-    _: None = Depends(require_key),
+    has_key: bool = Depends(public_access),
 ) -> dict:
-    """Uses the anonymised demo agent (daily totals from a real Moniepoint agent, Dec 2021 – Jan 2026)."""
+    """Uses the anonymised demo agent (daily totals from a real Moniepoint agent, Dec 2021 – Jan 2026).
+
+    **Open to everyone** with `sarima` and `arima` (20 requests a minute). The tree models
+    (`rf`, `xgb`, `lgbm`) train on request and need an API key."""
+    if model not in PUBLIC_DEMO_MODELS and not has_key:
+        raise HTTPException(status_code=401, detail="Without an API key the demo offers sarima and arima. "
+                                                    "The tree models need a key (X-API-Key header).")
     return forecast(demo_dataset(), date, model, include_path)
 
 
